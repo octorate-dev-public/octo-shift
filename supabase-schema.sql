@@ -21,8 +21,16 @@ CREATE TABLE teams (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   weekly_meeting_day VARCHAR(10), -- 'monday', 'tuesday', etc.
+  color VARCHAR(7) NOT NULL DEFAULT '#6366f1', -- hex color
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- USER_TEAMS join table (many-to-many: a user can belong to multiple teams)
+CREATE TABLE user_teams (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, team_id)
 );
 
 -- Add foreign key for teams

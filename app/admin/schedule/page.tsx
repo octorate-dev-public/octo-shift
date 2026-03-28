@@ -6,13 +6,14 @@ import Calendar from '@/components/Calendar';
 import DraggableUserList from '@/components/DraggableUserList';
 import DayShiftPanel from '@/components/DayShiftPanel';
 import { api } from '@/lib/fetcher';
-import { ShiftWithUser, User } from '@/types';
+import { ShiftWithUser, User, Team } from '@/types';
 
 export default function SchedulePage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [month, setMonth] = useState(today.getMonth()); // 0-based
   const [users, setUsers] = useState<User[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
   const [maxCapacity, setMaxCapacity] = useState(30);
   const [loading, setLoading] = useState(false);
@@ -28,15 +29,17 @@ export default function SchedulePage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const m = month + 1;
-      const [usersData, shiftsData, settingsData] = await Promise.all([
+      const m = month + 1; // API expects 1-based month
+      const [usersData, shiftsData, settingsData, teamsData] = await Promise.all([
         api.get<User[]>('/api/users'),
         api.get<ShiftWithUser[]>(`/api/shifts?year=${year}&month=${m}`),
         api.get<Record<string, string>>('/api/settings'),
+        api.get<Team[]>('/api/teams'),
       ]);
 
       setUsers(usersData);
       setShifts(shiftsData);
+      setTeams(teamsData);
       setMaxCapacity(settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30);
     } catch (error: any) {
       console.error('Error loading data:', error);
@@ -56,7 +59,7 @@ export default function SchedulePage() {
       await api.post('/api/scheduling', {
         action: 'generate',
         year,
-        month: month + 1,
+        month: month + 1, // 1-based
       });
       await loadData();
       alert('Schedule creato con successo!');
@@ -81,7 +84,7 @@ export default function SchedulePage() {
   const handleMonthChange = (delta: number) => {
     const newDate = new Date(year, month + delta);
     setYear(newDate.getFullYear());
-    setMonth(newDate.getMonth());
+    setMonth(newDate.getMonth()); // keep 0-based
   };
 
   return (
@@ -130,24 +133,27 @@ export default function SchedulePage() {
             ) : (
               <Calendar
                 year={year}
-                month={month + 1}
+                month={month + 1}  // Calendar expects 1-based
                 shifts={shifts}
+                teams={teams}
                 maxCapacity={maxCapacity}
                 onDayClick={setSelectedDate}
+                selectedDate={selectedDate}
                 editable={true}
               />
             )}
           </div>
         </div>
       </div>
+
       <DayShiftPanel
-          date={selectedDate}
-          shifts={shifts}
-          users={users}
-          maxCapacity={maxCapacity}
-          onClose={() => setSelectedDate(null)}
-          onShiftChange={handleShiftChange}
-        />
+        date={selectedDate}
+        shifts={shifts}
+        users={users}
+        maxCapacity={maxCapacity}
+        onClose={() => setSelectedDate(null)}
+        onShiftChange={handleShiftChange}
+      />
     </Layout>
   );
 }
