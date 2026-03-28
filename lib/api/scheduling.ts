@@ -1,179 +1,203 @@
 import { shiftsAPI } from './shifts';
 import { usersAPI } from './users';
 import { settingsAPI } from './settings';
-import { getMonthDays, getSeniorityDays } from '../utils';
+import { getMonthDays, getSeniorityDays, formatDate } from '../utils';
 import { User, Shift, ShiftType } from '@/types';
+import { createLogger, toAppError } from '../logger';
+
+const log = createLogger('schedulingAPI');
 
 export const schedulingAPI = {
-  // Generate monthly schedule with rules
+  /**
+   * Generate the monthly schedule respecting:
+   *  1. Max office capacity
+   *  2. Team meeting days → team members get office priority
+   *  3. Seniority → when capacity overflows on meeting days the most-senior stay
+   *  4. Locked shifts are never touched
+   *  5. Weekends → everyone smartwork
+   */
   async generateMonthlySchedule(year: number, month: number): Promise<Shift[]> {
-    // Get all settings
-    const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
-    const allUsers = await usersAPI.getAllUsers();
+    return log.withTiming('generateMonthlySchedule', { year, month }, async () => {
+      const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+      const allUsers = await usersAPI.getAllUsers();
 
-    // Sort users by seniority (most senior first)
-    const sortedUsers = allUsers.sort((a, b) => {
-      const aDays = getSeniorityDays(a.seniority_date);
-      const bDays = getSeniorityDays(b.seniority_date);
-      return bDays - aDays;
-    });
-
-    const shifts: Shift[] = [];
-    const monthDays = getMonthDays(year, month);
-    const officeCountByDay: Record<string, number> = {};
-
-    // Initialize office count
-    monthDays.forEach((date) => {
-      const dateStr = date.toISOString().split('T')[0];
-      officeCountByDay[dateStr] = 0;
-    });
-
-    // For each day in month
-    for (const date of monthDays) {
-      const dateStr = date.toISOString().split('T')[0];
-      const dayOfWeek = date.getDay();
-      const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek];
-
-      // Skip weekends
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        // Assign smartwork for weekends
-        for (const user of sortedUsers) {
-          shifts.push({
-            id: '', // Will be assigned by DB
-            user_id: user.id,
-            shift_date: dateStr,
-            shift_type: 'smartwork',
-            locked: false,
-            locked_by: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        }
-        continue;
+      if (allUsers.length === 0) {
+        log.warn('generateMonthlySchedule', 'Nessun utente attivo, schedule vuoto');
+        return [];
       }
 
-      // Get users with team meetings on this day
-      const meetingUsers = sortedUsers.filter((user) => {
-        return user.team_id; // Has team
+      // Fetch existing locked shifts so we can preserve them
+      const existingShifts = await shiftsAPI.getMonthShifts(year, month);
+      const lockedMap = new Map<string, ShiftType>(); // key = `userId:date`
+      existingShifts.forEach((s) => {
+        if (s.locked) lockedMap.set(`${s.user_id}:${s.shift_date}`, s.shift_type);
+      });
+      log.info('generateMonthlySchedule', `Trovati ${lockedMap.size} turni bloccati da preservare`);
+
+      // Fetch teams for meeting-day logic
+      const { data: teamsRaw } = await (await import('../supabase')).supabase
+        .from('teams')
+        .select('id, name, weekly_meeting_day');
+      const teamMeetingDay = new Map<string, string>();
+      (teamsRaw || []).forEach((t: any) => {
+        if (t.weekly_meeting_day) teamMeetingDay.set(t.id, t.weekly_meeting_day.toLowerCase());
       });
 
-      // Sort meeting users by seniority for this day's team meeting
-      let usersToAssignOffice = [...sortedUsers];
+      // Sort users by seniority (most senior first)
+      const sortedUsers = [...allUsers].sort((a, b) =>
+        getSeniorityDays(b.seniority_date) - getSeniorityDays(a.seniority_date),
+      );
 
-      // Prioritize team meeting members for their meeting days
-      const prioritizedUsers: User[] = [];
-      const regularUsers: User[] = [];
+      const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const monthDays = getMonthDays(year, month - 1); // getMonthDays expects 0-based month
+      const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType }> = [];
 
-      for (const user of usersToAssignOffice) {
-        // Note: In real implementation, check actual team meeting day
-        // For now, rotate team members through meeting days
-        if (user.team_id) {
-          prioritizedUsers.push(user);
-        } else {
-          regularUsers.push(user);
+      for (const date of monthDays) {
+        const dateStr = formatDate(date);
+        const dayOfWeek = date.getDay();
+        const dayName = DAY_NAMES[dayOfWeek];
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+        if (isWeekend) {
+          for (const user of sortedUsers) {
+            const lockKey = `${user.id}:${dateStr}`;
+            if (lockedMap.has(lockKey)) {
+              // preserve the locked shift type
+              newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedMap.get(lockKey)! });
+            } else {
+              newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: 'smartwork' });
+            }
+          }
+          continue;
         }
-      }
 
-      usersToAssignOffice = [...prioritizedUsers, ...regularUsers];
+        // ---- Weekday logic ----
 
-      // Assign shifts for the day
-      for (const user of usersToAssignOffice) {
-        const shiftType: ShiftType = officeCountByDay[dateStr] < maxCapacity ? 'office' : 'smartwork';
-
-        shifts.push({
-          id: '',
-          user_id: user.id,
-          shift_date: dateStr,
-          shift_type: shiftType,
-          locked: false,
-          locked_by: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        // Determine which users have their team meeting today
+        const meetingUserIds = new Set<string>();
+        sortedUsers.forEach((u) => {
+          if (u.team_id && teamMeetingDay.get(u.team_id) === dayName) {
+            meetingUserIds.add(u.id);
+          }
         });
 
-        if (shiftType === 'office') {
-          officeCountByDay[dateStr]++;
+        // Build assignment order: meeting users first (sorted by seniority already), then the rest
+        const meetingFirst = sortedUsers.filter((u) => meetingUserIds.has(u.id));
+        const others = sortedUsers.filter((u) => !meetingUserIds.has(u.id));
+        const ordered = [...meetingFirst, ...others];
+
+        let officeCount = 0;
+
+        // Count already-locked office shifts for capacity purposes
+        ordered.forEach((u) => {
+          const lockKey = `${u.id}:${dateStr}`;
+          if (lockedMap.has(lockKey) && lockedMap.get(lockKey) === 'office') {
+            officeCount++;
+          }
+        });
+
+        for (const user of ordered) {
+          const lockKey = `${user.id}:${dateStr}`;
+
+          if (lockedMap.has(lockKey)) {
+            newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedMap.get(lockKey)! });
+            continue;
+          }
+
+          const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
+          newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type });
+          if (type === 'office') officeCount++;
         }
       }
-    }
 
-    // Bulk insert shifts
-    const createdShifts = await shiftsAPI.bulkUpsertShifts(
-      shifts.map(({ id, ...rest }) => rest)
-    );
+      log.info('generateMonthlySchedule', `Preparati ${newShifts.length} turni da inserire`, {
+        users: sortedUsers.length,
+        days: monthDays.length,
+        locked: lockedMap.size,
+      });
 
-    return createdShifts;
+      const created = await shiftsAPI.bulkUpsertShifts(newShifts);
+      return created;
+    });
   },
 
-  // Rebalance schedule when capacity is exceeded
   async rebalanceSchedule(year: number, month: number): Promise<void> {
-    const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
-    const allShifts = await shiftsAPI.getMonthShifts(year, month);
-    const allUsers = await usersAPI.getAllUsers();
+    return log.withTiming('rebalanceSchedule', { year, month }, async () => {
+      const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+      const allShifts = await shiftsAPI.getMonthShifts(year, month);
+      const allUsers = await usersAPI.getAllUsers();
 
-    // Group shifts by date
-    const shiftsByDate: Record<string, any[]> = {};
-    allShifts.forEach((shift) => {
-      if (!shiftsByDate[shift.shift_date]) {
-        shiftsByDate[shift.shift_date] = [];
-      }
-      shiftsByDate[shift.shift_date].push(shift);
-    });
+      const shiftsByDate: Record<string, any[]> = {};
+      allShifts.forEach((shift) => {
+        if (!shiftsByDate[shift.shift_date]) shiftsByDate[shift.shift_date] = [];
+        shiftsByDate[shift.shift_date].push(shift);
+      });
 
-    // For each day, check capacity and rebalance by seniority
-    for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-      const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
+      let movedCount = 0;
 
-      if (officeShifts.length > maxCapacity) {
-        // Too many office, move least senior to smartwork
-        const usersToMove = officeShifts.length - maxCapacity;
+      for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
+        const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
 
-        // Sort by seniority
-        const sorted = officeShifts.sort((a, b) => {
+        if (officeShifts.length <= maxCapacity) continue;
+
+        const overflow = officeShifts.length - maxCapacity;
+        log.warn('rebalanceSchedule', `${dateStr}: overflow di ${overflow} persone`, {
+          office: officeShifts.length,
+          max: maxCapacity,
+        });
+
+        // Sort by seniority (least senior first → they get moved)
+        const sorted = officeShifts.sort((a: any, b: any) => {
           const aUser = allUsers.find((u) => u.id === a.user_id);
           const bUser = allUsers.find((u) => u.id === b.user_id);
           if (!aUser || !bUser) return 0;
-
-          const aDays = getSeniorityDays(aUser.seniority_date);
-          const bDays = getSeniorityDays(bUser.seniority_date);
-          return aDays - bDays; // Least senior first
+          return getSeniorityDays(aUser.seniority_date) - getSeniorityDays(bUser.seniority_date);
         });
 
-        // Move least senior to smartwork
-        for (let i = 0; i < usersToMove; i++) {
+        for (let i = 0; i < overflow; i++) {
           const shift = sorted[i];
           if (!shift.locked) {
             await shiftsAPI.upsertShift(shift.user_id, dateStr, 'smartwork');
+            movedCount++;
+          } else {
+            log.warn('rebalanceSchedule', `Turno bloccato, non spostato`, {
+              userId: shift.user_id,
+              date: dateStr,
+            });
           }
         }
       }
-    }
+
+      log.info('rebalanceSchedule', `Ribilanciamento completato: ${movedCount} turni spostati`);
+    });
   },
 
-  // Validate schedule
   async validateSchedule(year: number, month: number): Promise<string[]> {
-    const errors: string[] = [];
-    const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
-    const allShifts = await shiftsAPI.getMonthShifts(year, month);
+    return log.withTiming('validateSchedule', { year, month }, async () => {
+      const errors: string[] = [];
+      const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+      const allShifts = await shiftsAPI.getMonthShifts(year, month);
 
-    // Group shifts by date
-    const shiftsByDate: Record<string, any[]> = {};
-    allShifts.forEach((shift) => {
-      if (!shiftsByDate[shift.shift_date]) {
-        shiftsByDate[shift.shift_date] = [];
+      const shiftsByDate: Record<string, any[]> = {};
+      allShifts.forEach((shift) => {
+        if (!shiftsByDate[shift.shift_date]) shiftsByDate[shift.shift_date] = [];
+        shiftsByDate[shift.shift_date].push(shift);
+      });
+
+      for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
+        const officeCount = dayShifts.filter((s) => s.shift_type === 'office').length;
+        if (officeCount > maxCapacity) {
+          const msg = `${dateStr}: Capienza superata (${officeCount}/${maxCapacity})`;
+          errors.push(msg);
+        }
       }
-      shiftsByDate[shift.shift_date].push(shift);
+
+      if (errors.length > 0) {
+        log.warn('validateSchedule', `${errors.length} problemi trovati`, { errors });
+      } else {
+        log.info('validateSchedule', 'Schedule valido, nessun problema');
+      }
+      return errors;
     });
-
-    // Check each day
-    for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-      const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
-
-      if (officeShifts.length > maxCapacity) {
-        errors.push(`${dateStr}: Office capacity exceeded (${officeShifts.length}/${maxCapacity})`);
-      }
-    }
-
-    return errors;
   },
 };

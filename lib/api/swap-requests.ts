@@ -1,150 +1,173 @@
 import { supabase } from '../supabase';
 import { ShiftSwapRequest } from '@/types';
+import { createLogger, toAppError } from '../logger';
+
+const log = createLogger('swapRequestsAPI');
 
 export const swapRequestsAPI = {
-  // Get all pending swap requests
   async getPendingRequests(userId?: string): Promise<ShiftSwapRequest[]> {
-    let query = supabase
-      .from('shift_swap_requests')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
+    return log.withTiming('getPendingRequests', { userId: userId ?? 'all' }, async () => {
+      let query = supabase
+        .from('shift_swap_requests')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
 
-    if (userId) {
-      query = query.or(`requester_id.eq.${userId},responder_id.eq.${userId}`);
-    }
+      if (userId) {
+        query = query.or(`requester_id.eq.${userId},responder_id.eq.${userId}`);
+      }
 
-    const { data, error } = await query;
-
-    if (error) throw error;
-    return data || [];
+      const { data, error } = await query;
+      if (error) throw toAppError(error, 'Impossibile caricare le richieste di scambio');
+      return data || [];
+    });
   },
 
-  // Get swap requests for a user
   async getUserSwapRequests(userId: string): Promise<ShiftSwapRequest[]> {
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .select('*')
-      .or(`requester_id.eq.${userId},responder_id.eq.${userId}`)
-      .order('created_at', { ascending: false });
+    return log.withTiming('getUserSwapRequests', { userId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .select('*')
+        .or(`requester_id.eq.${userId},responder_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data || [];
+      if (error) throw toAppError(error, 'Impossibile caricare le richieste di scambio dell\'utente');
+      return data || [];
+    });
   },
 
-  // Create a swap request
   async createSwapRequest(
     requesterId: string,
     responderId: string,
     requesterShiftId: string,
-    responderShiftId: string
+    responderShiftId: string,
   ): Promise<ShiftSwapRequest> {
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .insert({
-        requester_id: requesterId,
-        responder_id: responderId,
-        requester_shift_id: requesterShiftId,
-        responder_shift_id: responderShiftId,
-        status: 'pending',
-      })
-      .select()
-      .single();
+    return log.withTiming('createSwapRequest', { requesterId, responderId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .insert({
+          requester_id: requesterId,
+          responder_id: responderId,
+          requester_shift_id: requesterShiftId,
+          responder_shift_id: responderShiftId,
+          status: 'pending',
+        })
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile creare la richiesta di scambio');
+      log.info('createSwapRequest', 'Richiesta di scambio creata', { id: data.id });
+      return data;
+    });
   },
 
-  // Accept a swap request
   async acceptSwapRequest(requestId: string): Promise<ShiftSwapRequest> {
-    // Get the request details
-    const { data: request, error: fetchError } = await supabase
-      .from('shift_swap_requests')
-      .select('*')
-      .eq('id', requestId)
-      .single();
+    return log.withTiming('acceptSwapRequest', { requestId }, async () => {
+      // 1. Fetch request
+      const { data: request, error: fetchError } = await supabase
+        .from('shift_swap_requests')
+        .select('*')
+        .eq('id', requestId)
+        .single();
 
-    if (fetchError) throw fetchError;
+      if (fetchError) throw toAppError(fetchError, 'Richiesta di scambio non trovata');
 
-    // Get the shifts
-    const { data: requesterShift, error: shift1Error } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('id', request.requester_shift_id)
-      .single();
+      // 2. Fetch both shifts
+      const [{ data: requesterShift, error: e1 }, { data: responderShift, error: e2 }] =
+        await Promise.all([
+          supabase.from('shifts').select('*').eq('id', request.requester_shift_id).single(),
+          supabase.from('shifts').select('*').eq('id', request.responder_shift_id).single(),
+        ]);
 
-    const { data: responderShift, error: shift2Error } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('id', request.responder_shift_id)
-      .single();
+      if (e1 || e2) {
+        const err = e1 || e2;
+        throw toAppError(err, 'Turno associato alla richiesta non trovato');
+      }
 
-    if (shift1Error || shift2Error) throw shift1Error || shift2Error;
+      // 3. Check neither shift is locked
+      if (requesterShift.locked || responderShift.locked) {
+        log.warn('acceptSwapRequest', 'Tentativo di swap su turno bloccato', {
+          requestId,
+          requesterLocked: requesterShift.locked,
+          responderLocked: responderShift.locked,
+        });
+        throw toAppError(
+          new Error('Uno dei turni è bloccato'),
+          'Impossibile scambiare turni bloccati',
+        );
+      }
 
-    // Swap the shifts
-    await supabase
-      .from('shifts')
-      .update({ user_id: responderShift.user_id })
-      .eq('id', requesterShift.id);
+      // 4. Perform the swap
+      const [{ error: swap1 }, { error: swap2 }] = await Promise.all([
+        supabase.from('shifts').update({ user_id: responderShift.user_id }).eq('id', requesterShift.id),
+        supabase.from('shifts').update({ user_id: requesterShift.user_id }).eq('id', responderShift.id),
+      ]);
 
-    await supabase
-      .from('shifts')
-      .update({ user_id: requesterShift.user_id })
-      .eq('id', responderShift.id);
+      if (swap1 || swap2) {
+        log.error('acceptSwapRequest', 'Errore durante lo swap effettivo', new Error((swap1 || swap2)!.message));
+        throw toAppError(swap1 || swap2, 'Errore durante lo scambio dei turni');
+      }
 
-    // Update request status
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .update({ status: 'accepted' })
-      .eq('id', requestId)
-      .select()
-      .single();
+      // 5. Mark accepted
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .update({ status: 'accepted' })
+        .eq('id', requestId)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile aggiornare lo stato della richiesta');
+      log.info('acceptSwapRequest', 'Scambio completato con successo', { requestId });
+      return data;
+    });
   },
 
-  // Reject a swap request
   async rejectSwapRequest(requestId: string): Promise<ShiftSwapRequest> {
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .update({ status: 'rejected' })
-      .eq('id', requestId)
-      .select()
-      .single();
+    return log.withTiming('rejectSwapRequest', { requestId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .update({ status: 'rejected' })
+        .eq('id', requestId)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile rifiutare la richiesta');
+      log.info('rejectSwapRequest', 'Richiesta rifiutata', { requestId });
+      return data;
+    });
   },
 
-  // Cancel a swap request
   async cancelSwapRequest(requestId: string): Promise<ShiftSwapRequest> {
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .update({ status: 'cancelled' })
-      .eq('id', requestId)
-      .select()
-      .single();
+    return log.withTiming('cancelSwapRequest', { requestId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .update({ status: 'cancelled' })
+        .eq('id', requestId)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile annullare la richiesta');
+      log.info('cancelSwapRequest', 'Richiesta annullata', { requestId });
+      return data;
+    });
   },
 
-  // Get swap request with user details
   async getSwapRequestWithDetails(requestId: string) {
-    const { data, error } = await supabase
-      .from('shift_swap_requests')
-      .select(`
-        *,
-        requester:requester_id(id, full_name, email),
-        responder:responder_id(id, full_name, email),
-        requester_shift:requester_shift_id(shift_date, shift_type),
-        responder_shift:responder_shift_id(shift_date, shift_type)
-      `)
-      .eq('id', requestId)
-      .single();
+    return log.withTiming('getSwapRequestWithDetails', { requestId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .select(`
+          *,
+          requester:requester_id(id, full_name, email),
+          responder:responder_id(id, full_name, email),
+          requester_shift:requester_shift_id(shift_date, shift_type),
+          responder_shift:responder_shift_id(shift_date, shift_type)
+        `)
+        .eq('id', requestId)
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile caricare i dettagli della richiesta');
+      return data;
+    });
   },
 };

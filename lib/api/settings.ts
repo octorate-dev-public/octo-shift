@@ -1,81 +1,98 @@
 import { supabase } from '../supabase';
 import { Settings } from '@/types';
+import { createLogger, toAppError } from '../logger';
+
+const log = createLogger('settingsAPI');
 
 export const settingsAPI = {
-  // Get a setting value
   async getSetting(key: string): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', key)
-      .single();
+    return log.withTiming('getSetting', { key }, async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', key)
+        .single();
 
-    if (error && error.code === 'PGRST116') {
-      return null;
-    }
-    if (error) throw error;
-    return data?.value || null;
-  },
-
-  // Get all settings
-  async getAllSettings(): Promise<Record<string, string>> {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('key, value');
-
-    if (error) throw error;
-
-    const settings: Record<string, string> = {};
-    (data || []).forEach((item) => {
-      settings[item.key] = item.value;
+      if (error && error.code === 'PGRST116') {
+        log.debug('getSetting', `Chiave "${key}" non trovata, restituisco null`);
+        return null;
+      }
+      if (error) throw toAppError(error, `Impossibile leggere l'impostazione "${key}"`);
+      return data?.value || null;
     });
-    return settings;
   },
 
-  // Set a setting value
+  async getAllSettings(): Promise<Record<string, string>> {
+    return log.withTiming('getAllSettings', {}, async () => {
+      const { data, error } = await supabase.from('settings').select('key, value');
+
+      if (error) throw toAppError(error, 'Impossibile caricare le impostazioni');
+
+      const settings: Record<string, string> = {};
+      (data || []).forEach((item) => {
+        settings[item.key] = item.value;
+      });
+
+      log.info('getAllSettings', `Caricate ${Object.keys(settings).length} impostazioni`);
+      return settings;
+    });
+  },
+
   async setSetting(key: string, value: string): Promise<Settings> {
-    const { data, error } = await supabase
-      .from('settings')
-      .upsert(
-        { key, value },
-        { onConflict: 'key' }
-      )
-      .select()
-      .single();
+    return log.withTiming('setSetting', { key, value }, async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .upsert({ key, value }, { onConflict: 'key' })
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, `Impossibile salvare l'impostazione "${key}"`);
+      log.info('setSetting', `Impostazione "${key}" aggiornata a "${value}"`);
+      return data;
+    });
   },
 
-  // Get max office capacity
   async getMaxOfficeCapacity(): Promise<number> {
     const value = await this.getSetting('max_office_capacity');
-    return value ? parseInt(value, 10) : 30;
+    const capacity = value ? parseInt(value, 10) : 30;
+    if (isNaN(capacity) || capacity < 0) {
+      log.warn('getMaxOfficeCapacity', `Valore non valido "${value}", uso default 30`);
+      return 30;
+    }
+    return capacity;
   },
 
-  // Set max office capacity
   async setMaxOfficeCapacity(capacity: number): Promise<void> {
+    if (capacity < 1) {
+      log.warn('setMaxOfficeCapacity', `Capienza ${capacity} non valida, minimo 1`);
+      throw toAppError(new Error('Capacity must be >= 1'), 'La capienza minima è 1');
+    }
     await this.setSetting('max_office_capacity', capacity.toString());
   },
 
-  // Get on-call count
   async getOnCallCount(): Promise<number> {
     const value = await this.getSetting('on_call_count');
-    return value ? parseInt(value, 10) : 1;
+    const count = value ? parseInt(value, 10) : 1;
+    if (isNaN(count) || count < 0) {
+      log.warn('getOnCallCount', `Valore non valido "${value}", uso default 1`);
+      return 1;
+    }
+    return count;
   },
 
-  // Set on-call count
   async setOnCallCount(count: number): Promise<void> {
+    if (count < 0) {
+      log.warn('setOnCallCount', `Valore ${count} non valido`);
+      throw toAppError(new Error('Count must be >= 0'), 'Il numero di reperibili non può essere negativo');
+    }
     await this.setSetting('on_call_count', count.toString());
   },
 
-  // Get timezone
   async getTimezone(): Promise<string> {
     const value = await this.getSetting('timezone');
     return value || 'Europe/Rome';
   },
 
-  // Set timezone
   async setTimezone(timezone: string): Promise<void> {
     await this.setSetting('timezone', timezone);
   },

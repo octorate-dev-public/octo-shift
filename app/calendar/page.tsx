@@ -3,8 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import Calendar from '@/components/Calendar';
-import { shiftsAPI } from '@/lib/api/shifts';
-import { settingsAPI } from '@/lib/api/settings';
+import { api } from '@/lib/fetcher';
 import { ShiftWithUser } from '@/types';
 
 export default function CalendarPage() {
@@ -22,14 +21,14 @@ export default function CalendarPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [shiftsData, capacityData] = await Promise.all([
-        shiftsAPI.getMonthShifts(year, month + 1),
-        settingsAPI.getMaxOfficeCapacity(),
+      const m = month + 1;
+      const [shiftsData, settingsData] = await Promise.all([
+        api.get<ShiftWithUser[]>(`/api/shifts?year=${year}&month=${m}`),
+        api.get<Record<string, string>>('/api/settings'),
       ]);
-
       setShifts(shiftsData);
-      setMaxCapacity(capacityData);
-    } catch (error) {
+      setMaxCapacity(settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30);
+    } catch (error: any) {
       console.error('Error loading calendar:', error);
     } finally {
       setLoading(false);
@@ -45,40 +44,26 @@ export default function CalendarPage() {
   return (
     <Layout userRole="user" userName="Utente">
       <div className="space-y-6">
-        {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Calendario</h1>
-          <p className="text-gray-600 mt-2">
-            Visualizza lo schedule del mese
-          </p>
+          <p className="text-gray-600 mt-2">Visualizza lo schedule del mese</p>
         </div>
 
-        {/* Month navigation */}
         <div className="flex items-center justify-between bg-white p-4 rounded-lg shadow">
-          <button
-            onClick={() => handleMonthChange(-1)}
-            className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium"
-          >
+          <button onClick={() => handleMonthChange(-1)} className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium">
             ← Precedente
           </button>
           <span className="text-lg font-semibold text-gray-900">
-            {new Date(year, month).toLocaleDateString('it-IT', {
-              month: 'long',
-              year: 'numeric',
-            })}
+            {new Date(year, month).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
           </span>
-          <button
-            onClick={() => handleMonthChange(1)}
-            className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium"
-          >
+          <button onClick={() => handleMonthChange(1)} className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium">
             Successivo →
           </button>
         </div>
 
-        {/* Calendar */}
         {loading ? (
-          <div className="text-center py-12 text-gray-500">
-            Caricamento calendario...
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
           <Calendar
@@ -89,35 +74,6 @@ export default function CalendarPage() {
             editable={false}
           />
         )}
-
-        {/* Legend */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Legenda
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-            <div>
-              <div className="w-6 h-6 bg-blue-100 rounded mb-2 border border-blue-300"></div>
-              <span className="text-gray-700">Ufficio</span>
-            </div>
-            <div>
-              <div className="w-6 h-6 bg-green-100 rounded mb-2 border border-green-300"></div>
-              <span className="text-gray-700">Smart</span>
-            </div>
-            <div>
-              <div className="w-6 h-6 bg-yellow-100 rounded mb-2 border border-yellow-300"></div>
-              <span className="text-gray-700">Ferie</span>
-            </div>
-            <div>
-              <div className="w-6 h-6 bg-purple-100 rounded mb-2 border border-purple-300"></div>
-              <span className="text-gray-700">Permesso</span>
-            </div>
-            <div>
-              <div className="w-6 h-6 bg-red-100 rounded mb-2 border border-red-300"></div>
-              <span className="text-gray-700">Malato</span>
-            </div>
-          </div>
-        </div>
       </div>
     </Layout>
   );

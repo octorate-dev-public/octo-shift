@@ -2,10 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { shiftsAPI } from '@/lib/api/shifts';
-import { usersAPI } from '@/lib/api/users';
-import { settingsAPI } from '@/lib/api/settings';
-import { ShiftWithUser } from '@/types';
+import { api } from '@/lib/fetcher';
+import { ShiftWithUser, User } from '@/types';
+import { formatDate } from '@/lib/utils';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -21,32 +20,31 @@ export default function AdminDashboard() {
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const today = new Date().toISOString().split('T')[0];
+        const today = formatDate(new Date());
 
-        // Get users count
-        const users = await usersAPI.getAllUsers();
+        const [users, todayShifts, settingsData, onCallData] = await Promise.all([
+          api.get<User[]>('/api/users'),
+          api.get<ShiftWithUser[]>(`/api/shifts?date=${today}`),
+          api.get<Record<string, string>>('/api/settings'),
+          api.get<any[]>(`/api/on-call?date=${today}`),
+        ]);
 
-        // Get today's shifts
-        const todayShifts = await shiftsAPI.getShiftsForDate(today);
-        const officeCount = todayShifts.filter(
-          (s) => s.shift_type === 'office'
-        ).length;
-
-        // Get max capacity
-        const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+        const officeCount = todayShifts.filter((s) => s.shift_type === 'office').length;
+        const maxCapacity = settingsData.max_office_capacity
+          ? parseInt(settingsData.max_office_capacity)
+          : 30;
 
         setStats({
           totalUsers: users.length,
           totalShifts: todayShifts.length,
           officeToday: officeCount,
-          onCallToday: 0, // TODO: Get actual on-call count
+          onCallToday: onCallData.length,
           maxCapacity,
         });
-
-        setLoading(false);
-      } catch (err) {
-        console.error('Error loading stats:', err);
-        setError('Errore nel caricamento dei dati');
+      } catch (err: any) {
+        console.error('Dashboard load error:', err);
+        setError(err.message || 'Errore nel caricamento dei dati');
+      } finally {
         setLoading(false);
       }
     };
@@ -58,7 +56,7 @@ export default function AdminDashboard() {
     return (
       <Layout userRole="admin" userName="Admin">
         <div className="flex items-center justify-center h-full">
-          <div className="text-gray-500">Caricamento dati...</div>
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </Layout>
     );
@@ -67,38 +65,26 @@ export default function AdminDashboard() {
   return (
     <Layout userRole="admin" userName="Admin">
       <div className="space-y-6">
-        {/* Page title */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard Admin</h1>
-          <p className="text-gray-600 mt-2">
-            Benvenuto nel pannello di amministrazione
-          </p>
+          <p className="text-gray-600 mt-2">Benvenuto nel pannello di amministrazione</p>
         </div>
 
-        {/* Stats grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Total Users */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">
-                  Totale Dipendenti
-                </p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
-                  {stats.totalUsers}
-                </p>
+                <p className="text-gray-600 text-sm font-medium">Totale Dipendenti</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">{stats.totalUsers}</p>
               </div>
               <div className="text-4xl">👥</div>
             </div>
           </div>
 
-          {/* Office Today */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">
-                  In Ufficio Oggi
-                </p>
+                <p className="text-gray-600 text-sm font-medium">In Ufficio Oggi</p>
                 <p className="text-3xl font-bold text-gray-900 mt-2">
                   {stats.officeToday}/{stats.maxCapacity}
                 </p>
@@ -107,67 +93,38 @@ export default function AdminDashboard() {
             </div>
             {stats.officeToday > stats.maxCapacity && (
               <div className="mt-3 px-3 py-1 bg-red-100 text-red-800 text-xs rounded-full w-fit">
-                ⚠️ Capienza superata
+                Capienza superata
               </div>
             )}
           </div>
 
-          {/* Shifts Today */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">
-                  Turni Assegnati
-                </p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
-                  {stats.totalShifts}
-                </p>
+                <p className="text-gray-600 text-sm font-medium">Turni Assegnati</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">{stats.totalShifts}</p>
               </div>
               <div className="text-4xl">📋</div>
             </div>
           </div>
 
-          {/* On Call */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm font-medium">
-                  Reperibilità Oggi
-                </p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
-                  {stats.onCallToday}
-                </p>
+                <p className="text-gray-600 text-sm font-medium">Reperibilità Oggi</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">{stats.onCallToday}</p>
               </div>
               <div className="text-4xl">📞</div>
             </div>
           </div>
         </div>
 
-        {/* Quick actions */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Azioni Rapide
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Azioni Rapide</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button className="btn-primary">
-              📅 Crea Schedule Mensile
-            </button>
-            <button className="btn-primary">
-              👥 Aggiungi Dipendente
-            </button>
-            <button className="btn-primary">
-              ⚙️ Impostazioni
-            </button>
-          </div>
-        </div>
-
-        {/* Recent activities */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Attività Recenti
-          </h2>
-          <div className="text-center text-gray-500 py-8">
-            Nessuna attività recente
+            <a href="/admin/schedule" className="btn-primary text-center">📅 Crea Schedule Mensile</a>
+            <a href="/admin/users" className="btn-primary text-center">👥 Aggiungi Dipendente</a>
+            <a href="/admin/settings" className="btn-primary text-center">⚙️ Impostazioni</a>
           </div>
         </div>
 

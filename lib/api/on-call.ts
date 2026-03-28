@@ -1,145 +1,149 @@
 import { supabase } from '../supabase';
 import { OnCallAssignment } from '@/types';
-import { formatDate, getWeekStart, getWeekEnd } from '../utils';
+import { formatDate, getWeekStart } from '../utils';
+import { createLogger, toAppError } from '../logger';
+
+const log = createLogger('onCallAPI');
 
 export const onCallAPI = {
-  // Get on-call assignments for a week
   async getWeekOnCall(weekStartDate: string): Promise<OnCallAssignment[]> {
-    const startDate = new Date(weekStartDate);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 6);
+    return log.withTiming('getWeekOnCall', { weekStartDate }, async () => {
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .select('*')
+        .eq('week_start_date', weekStartDate);
 
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .select('*')
-      .eq('week_start_date', weekStartDate);
-
-    if (error) throw error;
-    return data || [];
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità della settimana');
+      return data || [];
+    });
   },
 
-  // Get on-call for today
   async getOnCallForDate(date: string) {
-    const startDate = formatDate(getWeekStart(new Date(date)));
+    return log.withTiming('getOnCallForDate', { date }, async () => {
+      const startDate = formatDate(getWeekStart(new Date(date)));
 
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .select(`
-        *,
-        users:user_id(id, full_name, email)
-      `)
-      .eq('week_start_date', startDate);
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .select(`*, users:user_id(id, full_name, email)`)
+        .eq('week_start_date', startDate);
 
-    if (error) throw error;
-    return (data || []).map((item: any) => ({
-      ...item,
-      user: item.users,
-    }));
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità di oggi');
+      const result = (data || []).map((item: any) => ({ ...item, user: item.users }));
+      log.info('getOnCallForDate', `Trovati ${result.length} reperibili`, { date, startDate });
+      return result;
+    });
   },
 
-  // Get on-call assignments for a month
   async getMonthOnCall(year: number, month: number): Promise<OnCallAssignment[]> {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    return log.withTiming('getMonthOnCall', { year, month }, async () => {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0);
 
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .select('*')
-      .gte('week_start_date', formatDate(startDate))
-      .lte('week_end_date', formatDate(endDate));
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .select('*')
+        .gte('week_start_date', formatDate(startDate))
+        .lte('week_end_date', formatDate(endDate));
 
-    if (error) throw error;
-    return data || [];
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità del mese');
+      return data || [];
+    });
   },
 
-  // Create on-call assignment
-  async createOnCallAssignment(
-    userId: string,
-    weekStartDate: string
-  ): Promise<OnCallAssignment> {
-    const startDate = new Date(weekStartDate);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 6);
+  async createOnCallAssignment(userId: string, weekStartDate: string): Promise<OnCallAssignment> {
+    return log.withTiming('createOnCallAssignment', { userId, weekStartDate }, async () => {
+      const startDate = new Date(weekStartDate);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 6);
 
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .insert({
-        user_id: userId,
-        week_start_date: weekStartDate,
-        week_end_date: formatDate(endDate),
-      })
-      .select()
-      .single();
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .insert({
+          user_id: userId,
+          week_start_date: weekStartDate,
+          week_end_date: formatDate(endDate),
+        })
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile creare il turno di reperibilità');
+      return data;
+    });
   },
 
-  // Update on-call assignment
-  async updateOnCallAssignment(
-    assignmentId: string,
-    userId: string
-  ): Promise<OnCallAssignment> {
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .update({ user_id: userId })
-      .eq('id', assignmentId)
-      .select()
-      .single();
+  async updateOnCallAssignment(assignmentId: string, userId: string): Promise<OnCallAssignment> {
+    return log.withTiming('updateOnCallAssignment', { assignmentId, userId }, async () => {
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .update({ user_id: userId })
+        .eq('id', assignmentId)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) throw toAppError(error, 'Impossibile aggiornare la reperibilità');
+      return data;
+    });
   },
 
-  // Delete on-call assignment
   async deleteOnCallAssignment(assignmentId: string): Promise<void> {
-    const { error } = await supabase
-      .from('on_call_assignments')
-      .delete()
-      .eq('id', assignmentId);
+    return log.withTiming('deleteOnCallAssignment', { assignmentId }, async () => {
+      const { error } = await supabase
+        .from('on_call_assignments')
+        .delete()
+        .eq('id', assignmentId);
 
-    if (error) throw error;
+      if (error) throw toAppError(error, 'Impossibile eliminare la reperibilità');
+    });
   },
 
-  // Generate on-call rotation for a month
   async generateMonthOnCall(
     year: number,
     month: number,
-    userIds: string[]
+    userIds: string[],
   ): Promise<OnCallAssignment[]> {
-    const assignments: OnCallAssignment[] = [];
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    return log.withTiming('generateMonthOnCall', { year, month, usersCount: userIds.length }, async () => {
+      if (userIds.length === 0) {
+        log.warn('generateMonthOnCall', 'Nessun utente fornito per la rotazione on-call');
+        return [];
+      }
 
-    let currentDate = getWeekStart(startDate);
-    let userIndex = 0;
+      const assignments: OnCallAssignment[] = [];
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0);
 
-    while (currentDate <= endDate) {
-      const userId = userIds[userIndex % userIds.length];
-      const weekEnd = new Date(currentDate);
-      weekEnd.setDate(weekEnd.getDate() + 6);
+      let currentDate = getWeekStart(startDate);
+      let userIndex = 0;
 
-      const assignment = await this.createOnCallAssignment(
-        userId,
-        formatDate(currentDate)
-      );
-      assignments.push(assignment);
+      while (currentDate <= endDate) {
+        const userId = userIds[userIndex % userIds.length];
 
-      userIndex++;
-      currentDate.setDate(currentDate.getDate() + 7);
-    }
+        const assignment = await this.createOnCallAssignment(userId, formatDate(currentDate));
+        assignments.push(assignment);
 
-    return assignments;
+        userIndex++;
+        currentDate.setDate(currentDate.getDate() + 7);
+      }
+
+      log.info('generateMonthOnCall', `Generati ${assignments.length} turni on-call per ${month}/${year}`);
+      return assignments;
+    });
   },
 
-  // Get all users in on-call rotation
   async getOnCallUsers(): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('on_call_assignments')
-      .select('users:user_id(id, full_name, email)')
-      .select('DISTINCT(user_id)');
+    return log.withTiming('getOnCallUsers', {}, async () => {
+      const { data, error } = await supabase
+        .from('on_call_assignments')
+        .select('user_id, users:user_id(id, full_name, email)');
 
-    if (error) throw error;
-    return data || [];
+      if (error) throw toAppError(error, 'Impossibile caricare gli utenti in rotazione on-call');
+
+      // Deduplicate by user_id
+      const seen = new Set<string>();
+      return (data || []).filter((row: any) => {
+        if (seen.has(row.user_id)) return false;
+        seen.add(row.user_id);
+        return true;
+      });
+    });
   },
 };
