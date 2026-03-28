@@ -4,32 +4,52 @@ import { createLogger, toAppError } from '../logger';
 
 const log = createLogger('usersAPI');
 
+/** Supabase returns user_teams as nested array; flatten to string[] */
+function mapUser(raw: any): User {
+  return {
+    ...raw,
+    team_ids: (raw.user_teams ?? []).map((ut: { team_id: string }) => ut.team_id),
+  };
+}
+
+const USER_SELECT = '*, user_teams(team_id)';
+
 export const usersAPI = {
   async getAllUsers(): Promise<User[]> {
     return log.withTiming('getAllUsers', {}, async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_SELECT)
         .eq('is_active', true)
         .order('full_name', { ascending: true });
 
       if (error) throw toAppError(error, 'Impossibile caricare gli utenti');
       log.info('getAllUsers', `Trovati ${(data || []).length} utenti attivi`);
-      return data || [];
+      return (data || []).map(mapUser);
     });
   },
 
   async getTeamUsers(teamId: string): Promise<User[]> {
     return log.withTiming('getTeamUsers', { teamId }, async () => {
+      // Users belonging to this team via user_teams
+      const { data: teamLinks, error: e1 } = await supabase
+        .from('user_teams')
+        .select('user_id')
+        .eq('team_id', teamId);
+
+      if (e1) throw toAppError(e1, 'Impossibile caricare i membri del team');
+      if (!teamLinks || teamLinks.length === 0) return [];
+
+      const ids = teamLinks.map((r: any) => r.user_id);
       const { data, error } = await supabase
         .from('users')
-        .select('*')
-        .eq('team_id', teamId)
+        .select(USER_SELECT)
+        .in('id', ids)
         .eq('is_active', true)
         .order('full_name', { ascending: true });
 
       if (error) throw toAppError(error, 'Impossibile caricare gli utenti del team');
-      return data || [];
+      return (data || []).map(mapUser);
     });
   },
 
@@ -37,7 +57,7 @@ export const usersAPI = {
     return log.withTiming('getUser', { userId }, async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_SELECT)
         .eq('id', userId)
         .single();
 
@@ -46,7 +66,7 @@ export const usersAPI = {
         return null;
       }
       if (error) throw toAppError(error, 'Impossibile caricare il profilo utente');
-      return data;
+      return mapUser(data);
     });
   },
 
@@ -54,16 +74,13 @@ export const usersAPI = {
     return log.withTiming('getUserByEmail', { email }, async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_SELECT)
         .eq('email', email)
         .single();
 
-      if (error && error.code === 'PGRST116') {
-        log.info('getUserByEmail', 'Nessun utente con questa email', { email });
-        return null;
-      }
+      if (error && error.code === 'PGRST116') return null;
       if (error) throw toAppError(error, 'Errore nella ricerca utente per email');
-      return data;
+      return mapUser(data);
     });
   },
 
@@ -73,26 +90,13 @@ export const usersAPI = {
     fullName: string,
     role: 'admin' | 'user',
     seniorityDate: string,
-    teamId?: string,
+    teamIds?: string[],
   ): Promise<User> {
-    return log.withTiming('createUser', { email, role, teamId }, async () => {
-      // 1. Auth signup
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+    return log.withTiming('createUser', { email, role }, async () => {
+      const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+      if (authError) throw toAppError(authError, "Impossibile creare l'utente in Auth");
+      if (!authData.user) throw toAppError(new Error('No user returned'), 'Auth signup non ha restituito un utente');
 
-      if (authError) {
-        log.error('createUser', 'Auth signup fallito', new Error(authError.message), { email });
-        throw toAppError(authError, 'Impossibile creare l\'utente in Auth');
-      }
-      if (!authData.user) {
-        throw toAppError(new Error('No user returned'), 'Auth signup non ha restituito un utente');
-      }
-
-      log.info('createUser', 'Auth user creato', { authId: authData.user.id });
-
-      // 2. Profile insert
       const { data, error } = await supabase
         .from('users')
         .insert({
@@ -101,35 +105,50 @@ export const usersAPI = {
           full_name: fullName,
           role,
           seniority_date: seniorityDate,
-          team_id: teamId || null,
+          team_id: teamIds?.[0] ?? null,
           password_hash: '',
         })
-        .select()
+        .select(USER_SELECT)
         .single();
 
-      if (error) {
-        log.error('createUser', 'Insert profilo fallito', new Error(error.message), {
-          authId: authData.user.id,
-        });
-        throw toAppError(error, 'Impossibile creare il profilo utente');
+      if (error) throw toAppError(error, 'Impossibile creare il profilo utente');
+
+      if (teamIds && teamIds.length > 0) {
+        await this._setUserTeams(authData.user.id, teamIds);
       }
 
-      log.info('createUser', `Utente ${fullName} creato con successo`, { id: data.id, role });
-      return data;
+      log.info('createUser', `Utente ${fullName} creato`, { id: data.id, role });
+      return mapUser(data);
     });
   },
 
-  async updateUser(userId: string, updates: Partial<User>): Promise<User> {
+  async updateUser(userId: string, updates: Partial<User> & { team_ids?: string[] }): Promise<User> {
     return log.withTiming('updateUser', { userId, fields: Object.keys(updates) }, async () => {
-      const { data, error } = await supabase
-        .from('users')
-        .update(updates)
-        .eq('id', userId)
-        .select()
-        .single();
+      const { team_ids, ...rest } = updates as any;
 
-      if (error) throw toAppError(error, 'Impossibile aggiornare l\'utente');
-      return data;
+      // Update main user record (excluding team_ids which is virtual)
+      const dbUpdates = { ...rest };
+      delete dbUpdates.user_teams;
+
+      if (Object.keys(dbUpdates).length > 0) {
+        const { error } = await supabase
+          .from('users')
+          .update(dbUpdates)
+          .eq('id', userId);
+        if (error) throw toAppError(error, "Impossibile aggiornare l'utente");
+      }
+
+      // Update team memberships if provided
+      if (Array.isArray(team_ids)) {
+        await this._setUserTeams(userId, team_ids);
+        // Also update legacy team_id to first team for compatibility
+        const legacyTeamId = team_ids.length > 0 ? team_ids[0] : null;
+        await supabase.from('users').update({ team_id: legacyTeamId }).eq('id', userId);
+      }
+
+      const user = await this.getUser(userId);
+      if (!user) throw toAppError(new Error('User not found'), 'Utente non trovato dopo aggiornamento');
+      return user;
     });
   },
 
@@ -139,12 +158,12 @@ export const usersAPI = {
         .from('users')
         .update({ is_active: false })
         .eq('id', userId)
-        .select()
+        .select(USER_SELECT)
         .single();
 
-      if (error) throw toAppError(error, 'Impossibile disattivare l\'utente');
+      if (error) throw toAppError(error, 'Impossibile disattivare il dipendente');
       log.info('deactivateUser', `Utente ${userId} disattivato`);
-      return data;
+      return mapUser(data);
     });
   },
 
@@ -152,12 +171,12 @@ export const usersAPI = {
     return log.withTiming('getUsersBySeniority', {}, async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_SELECT)
         .eq('is_active', true)
         .order('seniority_date', { ascending: true });
 
       if (error) throw toAppError(error, 'Impossibile caricare utenti per anzianità');
-      return data || [];
+      return (data || []).map(mapUser);
     });
   },
 
@@ -165,12 +184,24 @@ export const usersAPI = {
     return log.withTiming('searchUsers', { query }, async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_SELECT)
         .or(`full_name.ilike.%${query}%,email.ilike.%${query}%`)
         .eq('is_active', true);
 
       if (error) throw toAppError(error, 'Errore nella ricerca utenti');
-      return data || [];
+      return (data || []).map(mapUser);
     });
+  },
+
+  /** Replace all team memberships for a user */
+  async _setUserTeams(userId: string, teamIds: string[]): Promise<void> {
+    // Delete existing
+    await supabase.from('user_teams').delete().eq('user_id', userId);
+    // Insert new
+    if (teamIds.length > 0) {
+      const rows = teamIds.map((team_id) => ({ user_id: userId, team_id }));
+      const { error } = await supabase.from('user_teams').insert(rows);
+      if (error) throw toAppError(error, 'Impossibile aggiornare i team del dipendente');
+    }
   },
 };
