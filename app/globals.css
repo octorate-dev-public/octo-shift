@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Calendar styles */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  border: 1px solid #e5e7eb;
+  padding: 4px;
+  position: relative;
+  background-color: white;
+}
+
+.calendar-day.weekend {
+  background-color: #f3f4f6;
+}
+
+.calendar-day-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 2px;
+}
+
+.calendar-day-content {
+  font-size: 10px;
+  overflow: hidden;
+}
+
+/* Drag and drop styles */
+.dragging {
+  opacity: 0.5;
+}
+
+.drag-over {
+  background-color: #e0e7ff;
+  border: 2px dashed #4f46e5;
+}
+
+/* Shift colors */
+.shift-office {
+  @apply bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium;
+}
+
+.shift-smartwork {
+  @apply bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium;
+}
+
+.shift-sick {
+  @apply bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium;
+}
+
+.shift-vacation {
+  @apply bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium;
+}
+
+.shift-permission {
+  @apply bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-medium;
+}
+
+/* Sidebar styles */
+.sidebar {
+  @apply bg-white shadow-lg h-screen sticky top-0 overflow-y-auto;
+}
+
+.sidebar-item {
+  @apply px-4 py-3 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition;
+}
+
+.sidebar-item.active {
+  @apply bg-blue-50 border-l-4 border-blue-500;
+}
+
+/* Modal styles */
+.modal-overlay {
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+}
+
+.modal-content {
+  @apply bg-white rounded-lg shadow-xl max-w-md w-full mx-4;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-medium;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition font-medium;
+}
+
+.btn-danger {
+  @apply bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition font-medium;
+}
+
+.btn-small {
+  @apply text-xs px-2 py-1;
+}
+
+/* Lock icon */
+.lock-icon {
+  @apply inline-block w-4 h-4 text-yellow-600;
+}
+
+/* Loading state */
+.loading {
+  @apply animate-spin h-5 w-5;
+}
+
+/* Utility classes */
+.truncate-text {
+  @apply overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-in-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
