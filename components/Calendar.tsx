@@ -4,6 +4,12 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { ShiftWithUser, Team, User } from '@/types';
 import { getMonthDays, getInitials, getShiftColor } from '@/lib/utils';
 
+export interface SwapCell {
+  userId: string;
+  date: string;
+  shiftType: string | null;
+}
+
 interface CalendarProps {
   year: number;
   month: number; // 1-based (1=January … 12=December)
@@ -15,6 +21,7 @@ interface CalendarProps {
   onDayClick?: (date: string) => void;
   selectedDate?: string | null;
   editable?: boolean;
+  onSwapShifts?: (a: SwapCell, b: SwapCell) => Promise<void>;
 }
 
 function localDateStr(date: Date): string {
@@ -63,7 +70,6 @@ const SHIFT_TEXT: Record<string, string> = {
   permission: '#374151',
 };
 
-// Summary column header colors
 const TOTAL_BG: Record<MatrixType, string> = {
   office: '#eff6ff',
   smartwork: '#f0fdf4',
@@ -86,8 +92,12 @@ export default function Calendar({
   onDayClick,
   selectedDate,
   editable = false,
+  onSwapShifts,
 }: CalendarProps) {
   const [viewMode, setViewMode] = useState<'calendar' | 'matrix'>('calendar');
+  const [swapMode, setSwapMode] = useState(false);
+  const [swapSelected, setSwapSelected] = useState<SwapCell | null>(null);
+  const [swapping, setSwapping] = useState(false);
   const [dayShifts, setDayShifts] = useState<Record<string, ShiftWithUser[]>>({});
 
   useEffect(() => {
@@ -98,6 +108,14 @@ export default function Calendar({
     });
     setDayShifts(grouped);
   }, [shifts]);
+
+  // Exit swap mode when leaving matrix view
+  useEffect(() => {
+    if (viewMode !== 'matrix') {
+      setSwapMode(false);
+      setSwapSelected(null);
+    }
+  }, [viewMode]);
 
   const m0 = month - 1;
   const days = getMonthDays(year, m0);
@@ -119,7 +137,6 @@ export default function Calendar({
     return null;
   }
 
-  // Matrix: resolve user list
   const matrixUsers = useMemo<User[]>(() => {
     if (users && users.length > 0) return users;
     const map = new Map<string, User>();
@@ -127,7 +144,6 @@ export default function Calendar({
     return Array.from(map.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [users, shifts]);
 
-  // Matrix: date → userId → shift
   const shiftLookup = useMemo(() => {
     const map = new Map<string, Map<string, ShiftWithUser>>();
     shifts.forEach((s) => {
@@ -137,7 +153,6 @@ export default function Calendar({
     return map;
   }, [shifts]);
 
-  // Per-date totals (right summary columns)
   const dateTotals = useMemo(() => {
     const map = new Map<string, Record<MatrixType, number>>();
     days.forEach((date) => {
@@ -151,22 +166,18 @@ export default function Calendar({
     return map;
   }, [days, shiftLookup]);
 
-  // Per-user totals (bottom summary rows)
   const userTotals = useMemo(() => {
     const map = new Map<string, Record<MatrixType, number>>();
     matrixUsers.forEach((u) => {
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
       shifts.forEach((s) => {
-        if (s.user_id === u.id && s.shift_type in totals) {
-          totals[s.shift_type as MatrixType]++;
-        }
+        if (s.user_id === u.id && s.shift_type in totals) totals[s.shift_type as MatrixType]++;
       });
       map.set(u.id, totals);
     });
     return map;
   }, [matrixUsers, shifts]);
 
-  // Grand totals (bottom-right corner)
   const grandTotals = useMemo(() => {
     const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
     shifts.forEach((s) => {
@@ -175,55 +186,109 @@ export default function Calendar({
     return totals;
   }, [shifts]);
 
-  const viewToggle = (
-    <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
-      <button
-        onClick={() => setViewMode('calendar')}
-        className={`px-3 py-1.5 font-medium transition-colors ${
-          viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-        }`}
-      >
-        Calendario
-      </button>
-      <button
-        onClick={() => setViewMode('matrix')}
-        className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-300 ${
-          viewMode === 'matrix' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-        }`}
-      >
-        Matrice
-      </button>
-    </div>
-  );
+  // ── Swap mode handlers ──────────────────────────────────────
+  const toggleSwapMode = () => {
+    setSwapMode((m) => !m);
+    setSwapSelected(null);
+  };
 
+  const handleCellClick = (userId: string, date: string, shiftType: string | null) => {
+    if (!swapMode || !onSwapShifts || swapping) return;
+
+    if (!swapSelected) {
+      setSwapSelected({ userId, date, shiftType });
+      return;
+    }
+
+    // Same cell: deselect
+    if (swapSelected.userId === userId && swapSelected.date === date) {
+      setSwapSelected(null);
+      return;
+    }
+
+    const cellA = swapSelected;
+    const cellB = { userId, date, shiftType };
+    setSwapSelected(null);
+    setSwapping(true);
+    onSwapShifts(cellA, cellB).finally(() => setSwapping(false));
+  };
+
+  const isSwapSelected = (userId: string, date: string) =>
+    swapSelected?.userId === userId && swapSelected?.date === date;
+
+  // ── Header ──────────────────────────────────────────────────
   const header = (
-    <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-      <h2 className="text-xl font-bold text-gray-900 capitalize">{monthName}</h2>
-      {viewToggle}
+    <div className="p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-bold text-gray-900 capitalize">{monthName}</h2>
+        <div className="flex items-center gap-2">
+          {/* Swap toggle — only in matrix mode */}
+          {viewMode === 'matrix' && onSwapShifts && (
+            <button
+              onClick={toggleSwapMode}
+              disabled={swapping}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                swapMode
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {swapping ? '⏳' : swapMode ? '✕ Annulla' : '⇄ Swap'}
+            </button>
+          )}
+          {/* View toggle */}
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Calendario
+            </button>
+            <button
+              onClick={() => setViewMode('matrix')}
+              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-300 ${
+                viewMode === 'matrix' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Matrice
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Swap mode instructions */}
+      {viewMode === 'matrix' && swapMode && (
+        <div className="mt-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${swapSelected ? 'bg-indigo-600 animate-pulse' : 'bg-indigo-300'}`} />
+          {swapSelected
+            ? `Selezionato: ${matrixUsers.find((u) => u.id === swapSelected.userId)?.full_name ?? '?'} — ${swapSelected.date}${swapSelected.shiftType ? ` (${SHIFT_LABELS[swapSelected.shiftType] ?? swapSelected.shiftType})` : ' (vuoto)'} — Clicca un'altra cella per completare lo swap`
+            : 'Clicca la prima cella da scambiare'}
+        </div>
+      )}
     </div>
   );
 
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   //  MATRIX VIEW
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   if (viewMode === 'matrix') {
     return (
       <div className="bg-white rounded-lg shadow">
         {header}
 
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto ${swapping ? 'opacity-60 pointer-events-none' : ''}`}>
           <table className="min-w-full text-xs border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                {/* Date column */}
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-r border-gray-200 min-w-[90px]">
                   Data
                 </th>
-                {/* User columns */}
                 {matrixUsers.map((u) => (
                   <th
                     key={u.id}
-                    className="px-2 py-2 text-center font-medium text-gray-600 min-w-[68px] border-r border-gray-100 last:border-r-0"
+                    className="px-2 py-2 text-center font-medium text-gray-600 min-w-[68px] border-r border-gray-100"
                     title={u.full_name}
                   >
                     <div className="flex flex-col items-center gap-0.5">
@@ -236,7 +301,7 @@ export default function Calendar({
                     </div>
                   </th>
                 ))}
-                {/* Summary header columns */}
+                {/* Summary column headers */}
                 {MATRIX_TYPES.map((type) => (
                   <th
                     key={type}
@@ -261,7 +326,7 @@ export default function Calendar({
                 return (
                   <tr
                     key={dateStr}
-                    className={`border-b border-gray-100 ${isNonWorking ? '' : 'hover:bg-gray-50/40'}`}
+                    className={`border-b border-gray-100 ${!isNonWorking && !swapMode ? 'hover:bg-gray-50/40' : ''}`}
                   >
                     {/* Date cell */}
                     <td
@@ -274,28 +339,42 @@ export default function Calendar({
                       {IT_DAYS_ABBR[dow]} {date.getDate()}
                       {isHoliday && <span className="ml-1 text-amber-400 font-bold">*</span>}
                     </td>
+
                     {/* Per-user shift cells */}
                     {matrixUsers.map((u) => {
                       const shift = rowShifts?.get(u.id);
-                      const type = shift?.shift_type;
+                      const type = shift?.shift_type ?? null;
+                      const selected = isSwapSelected(u.id, dateStr);
+                      const clickable = swapMode && onSwapShifts && !swapping;
+
                       return (
                         <td
                           key={u.id}
-                          className="px-1 py-1 text-center border-r border-gray-100 last:border-r-0"
+                          className={`px-1 py-1 text-center border-r border-gray-100 transition-all ${
+                            clickable ? 'cursor-pointer' : ''
+                          }`}
+                          onClick={() => clickable && handleCellClick(u.id, dateStr, type)}
                         >
-                          {type ? (
-                            <div
-                              className="rounded px-1 py-0.5 text-[11px] font-medium"
-                              style={{ backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }}
-                            >
-                              {SHIFT_LABELS[type] ?? type}
-                            </div>
-                          ) : (
-                            <div className="text-gray-200 text-[11px]">—</div>
-                          )}
+                          <div
+                            className={`rounded px-1 py-0.5 text-[11px] font-medium transition-all ${
+                              selected
+                                ? 'ring-2 ring-indigo-500 ring-offset-1 scale-105'
+                                : clickable
+                                ? 'hover:ring-2 hover:ring-indigo-300 hover:scale-105'
+                                : ''
+                            }`}
+                            style={
+                              type
+                                ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
+                                : { color: '#d1d5db' }
+                            }
+                          >
+                            {type ? SHIFT_LABELS[type] ?? type : '—'}
+                          </div>
                         </td>
                       );
                     })}
+
                     {/* Per-date total cells */}
                     {MATRIX_TYPES.map((type) => (
                       <td
@@ -304,7 +383,7 @@ export default function Calendar({
                         style={{ backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] }}
                       >
                         {dTotals[type] > 0 ? dTotals[type] : (
-                          <span className="text-gray-300 font-normal">—</span>
+                          <span className="font-normal" style={{ color: '#d1d5db' }}>—</span>
                         )}
                       </td>
                     ))}
@@ -312,38 +391,33 @@ export default function Calendar({
                 );
               })}
 
-              {/* Spacer before summary rows */}
-              <tr className="border-t-2 border-gray-300">
-                <td
-                  colSpan={matrixUsers.length + 4}
-                  className="py-0"
-                />
+              {/* Separator */}
+              <tr>
+                <td colSpan={matrixUsers.length + 4} className="border-t-2 border-gray-300 p-0" />
               </tr>
 
-              {/* Per-user summary rows (one per type) */}
+              {/* Per-user summary rows */}
               {MATRIX_TYPES.map((type) => (
                 <tr key={`total-${type}`} className="border-b border-gray-100">
-                  {/* Label */}
                   <td
                     className="sticky left-0 z-10 px-3 py-1.5 font-semibold whitespace-nowrap border-r border-gray-200 text-[11px]"
                     style={{ backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] }}
                   >
                     Tot. {MATRIX_LABELS[type]}
                   </td>
-                  {/* Per-user count */}
                   {matrixUsers.map((u) => {
                     const count = userTotals.get(u.id)?.[type] ?? 0;
                     return (
                       <td
                         key={u.id}
                         className="px-1 py-1.5 text-center font-semibold border-r border-gray-100"
-                        style={{ backgroundColor: count > 0 ? TOTAL_BG[type] : undefined, color: TOTAL_TEXT[type] }}
+                        style={count > 0 ? { backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] } : undefined}
                       >
-                        {count > 0 ? count : <span className="text-gray-300">—</span>}
+                        {count > 0 ? count : <span style={{ color: '#d1d5db' }}>—</span>}
                       </td>
                     );
                   })}
-                  {/* Grand total in matching summary column; blanks in others */}
+                  {/* Grand total in the matching column; blank in others */}
                   {MATRIX_TYPES.map((t) => (
                     <td
                       key={t}
@@ -376,9 +450,9 @@ export default function Calendar({
     );
   }
 
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   //  CALENDAR (GRID) VIEW
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   return (
     <div className="bg-white rounded-lg shadow">
       {header}

@@ -7,6 +7,7 @@ import DraggableUserList from '@/components/DraggableUserList';
 import DayShiftPanel from '@/components/DayShiftPanel';
 import { api } from '@/lib/fetcher';
 import { ShiftWithUser, User, Team } from '@/types';
+import type { SwapCell } from '@/components/Calendar';
 
 export default function SchedulePage() {
   const today = new Date();
