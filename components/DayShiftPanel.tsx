@@ -119,21 +119,45 @@ export default function DayShiftPanel({
       {/* Panel */}
       <div className="fixed top-0 right-0 w-96 h-screen z-50 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gray-50">
-          <div>
+        <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-gray-900 capitalize">
               {formatItalianDate(date)}
             </h2>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+              aria-label="Chiudi"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
-            aria-label="Chiudi"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+
+          {/* Holiday banner + toggle */}
+          {isHoliday && (
+            <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+              <span className="text-amber-700 text-xs font-medium flex-1">Giorno non lavorativo</span>
+            </div>
+          )}
+          {onToggleHoliday && (
+            <button
+              onClick={handleHolidayToggle}
+              disabled={holidayLoading}
+              className={`mt-2 w-full text-xs font-medium py-1.5 px-3 rounded-lg border transition-colors disabled:opacity-50 ${
+                isHoliday
+                  ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100'
+                  : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              {holidayLoading
+                ? 'Aggiornamento...'
+                : isHoliday
+                ? 'Rimuovi festività'
+                : 'Segna come giorno non lavorativo'}
+            </button>
+          )}
         </div>
 
         {/* Capacity bar */}
