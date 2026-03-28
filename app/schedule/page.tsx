@@ -31,6 +31,7 @@ export default function SchedulePage() {
   const [month, setMonth] = useState(today.getMonth());
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
   const [userName, setUserName] = useState('Utente');
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,12 @@ export default function SchedulePage() {
   // Resolve current user on mount
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) setUserId(data.user.id);
+      if (data?.user) {
+        setUserId(data.user.id);
+      } else {
+        setLoading(false);
+      }
+      setAuthChecked(true);
     });
   }, []);
 
@@ -51,9 +57,9 @@ export default function SchedulePage() {
   }, [userId]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!authChecked || !userId) return;
     loadShifts();
-  }, [userId, year, month]);
+  }, [authChecked, userId, year, month]);
 
   const loadShifts = async () => {
     if (!userId) return;
@@ -100,6 +106,13 @@ export default function SchedulePage() {
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {authChecked && !userId && (
+          <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-yellow-800">
+            <p className="font-medium">Sessione non trovata</p>
+            <p className="text-sm mt-1">Effettua il login per visualizzare il tuo schedule.</p>
           </div>
         )}
 

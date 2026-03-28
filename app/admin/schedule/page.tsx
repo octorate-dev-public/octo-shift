@@ -16,6 +16,7 @@ export default function SchedulePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
   const [maxCapacity, setMaxCapacity] = useState(30);
+  const [holidays, setHolidays] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -40,7 +41,14 @@ export default function SchedulePage() {
       setUsers(usersData);
       setShifts(shiftsData);
       setTeams(teamsData);
-      setMaxCapacity(settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30);
+      setMaxCapacity(
+        settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30,
+      );
+      // Parse holidays from settings (key = "holiday:YYYY-MM-DD")
+      const newHolidays = Object.keys(settingsData)
+        .filter((k) => k.startsWith('holiday:'))
+        .map((k) => k.replace('holiday:', ''));
+      setHolidays(newHolidays);
     } catch (error: any) {
       console.error('Error loading data:', error);
     } finally {
@@ -51,6 +59,20 @@ export default function SchedulePage() {
   const handleShiftChange = async (userId: string, shiftDate: string, newType: 'office' | 'smartwork') => {
     await api.post('/api/shifts', { userId, shiftDate, shiftType: newType });
     await loadData();
+  };
+
+  const handleToggleHoliday = async (date: string) => {
+    if (holidays.includes(date)) {
+      await api.del(`/api/settings?key=${encodeURIComponent(`holiday:${date}`)}`);
+    } else {
+      await api.post('/api/settings', { key: `holiday:${date}`, value: '1' });
+    }
+    // Refresh settings to get updated holidays
+    const settingsData = await api.get<Record<string, string>>('/api/settings');
+    const newHolidays = Object.keys(settingsData)
+      .filter((k) => k.startsWith('holiday:'))
+      .map((k) => k.replace('holiday:', ''));
+    setHolidays(newHolidays);
   };
 
   const handleGenerateSchedule = async () => {
@@ -136,6 +158,8 @@ export default function SchedulePage() {
                 month={month + 1}  // Calendar expects 1-based
                 shifts={shifts}
                 teams={teams}
+                users={users}
+                holidays={holidays}
                 maxCapacity={maxCapacity}
                 onDayClick={setSelectedDate}
                 selectedDate={selectedDate}
@@ -151,8 +175,10 @@ export default function SchedulePage() {
         shifts={shifts}
         users={users}
         maxCapacity={maxCapacity}
+        isHoliday={selectedDate ? holidays.includes(selectedDate) : false}
         onClose={() => setSelectedDate(null)}
         onShiftChange={handleShiftChange}
+        onToggleHoliday={handleToggleHoliday}
       />
     </Layout>
   );

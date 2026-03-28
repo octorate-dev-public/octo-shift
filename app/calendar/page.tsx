@@ -4,14 +4,17 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import Calendar from '@/components/Calendar';
 import { api } from '@/lib/fetcher';
-import { ShiftWithUser } from '@/types';
+import { ShiftWithUser, Team, User } from '@/types';
 
 export default function CalendarPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [maxCapacity, setMaxCapacity] = useState(30);
+  const [holidays, setHolidays] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,12 +25,22 @@ export default function CalendarPage() {
     try {
       setLoading(true);
       const m = month + 1;
-      const [shiftsData, settingsData] = await Promise.all([
+      const [shiftsData, settingsData, teamsData, usersData] = await Promise.all([
         api.get<ShiftWithUser[]>(`/api/shifts?year=${year}&month=${m}`),
         api.get<Record<string, string>>('/api/settings'),
+        api.get<Team[]>('/api/teams'),
+        api.get<User[]>('/api/users'),
       ]);
       setShifts(shiftsData);
-      setMaxCapacity(settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30);
+      setTeams(teamsData);
+      setUsers(usersData);
+      setMaxCapacity(
+        settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30,
+      );
+      const newHolidays = Object.keys(settingsData)
+        .filter((k) => k.startsWith('holiday:'))
+        .map((k) => k.replace('holiday:', ''));
+      setHolidays(newHolidays);
     } catch (error: any) {
       console.error('Error loading calendar:', error);
     } finally {
@@ -71,6 +84,9 @@ export default function CalendarPage() {
             month={month + 1}
             shifts={shifts}
             maxCapacity={maxCapacity}
+            teams={teams}
+            users={users}
+            holidays={holidays}
             editable={false}
           />
         )}
