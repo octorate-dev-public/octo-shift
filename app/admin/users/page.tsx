@@ -12,7 +12,7 @@ interface UserFormState {
   password: string;
   role: 'admin' | 'user';
   seniorityDate: string;
-  teamId: string;
+  teamIds: string[];
 }
 
 const emptyForm = (): UserFormState => ({
@@ -21,7 +21,7 @@ const emptyForm = (): UserFormState => ({
   password: '',
   role: 'user',
   seniorityDate: '',
-  teamId: '',
+  teamIds: [],
 });
 
 function formatSeniority(seniorityDate: string): string {
@@ -78,7 +78,7 @@ export default function UsersPage() {
       password: '',
       role: user.role,
       seniorityDate: user.seniority_date,
-      teamId: user.team_id ?? '',
+      teamIds: user.team_ids ?? [],
     });
     setShowForm(true);
     setError(null);
@@ -103,15 +103,14 @@ export default function UsersPage() {
       setError(null);
 
       if (editingId) {
-        const updates: Record<string, any> = {
+        await api.patch('/api/users', {
           id: editingId,
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           role: form.role,
           seniorityDate: form.seniorityDate,
-          teamId: form.teamId || null,
-        };
-        await api.patch('/api/users', updates);
+          teamIds: form.teamIds,
+        });
       } else {
         await api.post('/api/users', {
           fullName: form.fullName.trim(),
@@ -119,7 +118,7 @@ export default function UsersPage() {
           password: form.password,
           role: form.role,
           seniorityDate: form.seniorityDate,
-          teamId: form.teamId || null,
+          teamIds: form.teamIds,
         });
       }
 
