@@ -21,21 +21,22 @@ export const GET = withHandler('api/teams', 'GET', async (req) => {
  * POST /api/teams  { name, description?, weeklyMeetingDay? }
  */
 export const POST = withHandler('api/teams', 'POST', async (req) => {
-  const { name, description, weeklyMeetingDay } = await parseBody(req);
-  const team = await teamsAPI.createTeam(name, description, weeklyMeetingDay);
+  const { name, description, weeklyMeetingDay, color } = await parseBody(req);
+  const team = await teamsAPI.createTeam(name, description, weeklyMeetingDay, color);
   return jsonOk(team, 201);
 });
 
 /**
- * PATCH /api/teams  { id, name?, description?, weeklyMeetingDay? }
+ * PATCH /api/teams  { id, name?, description?, weeklyMeetingDay?, color? }
  */
 export const PATCH = withHandler('api/teams', 'PATCH', async (req) => {
-  const { id, name, description, weeklyMeetingDay } = await parseBody(req);
+  const { id, name, description, weeklyMeetingDay, color } = await parseBody(req);
 
   const updates: Record<string, string | null | undefined> = {};
   if (name !== undefined) updates.name = name;
   if (description !== undefined) updates.description = description;
   if (weeklyMeetingDay !== undefined) updates.weekly_meeting_day = weeklyMeetingDay;
+  if (color !== undefined) updates.color = color;
 
   const team = await teamsAPI.updateTeam(id, updates as any);
   return jsonOk(team);

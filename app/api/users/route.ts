@@ -45,8 +45,8 @@ export const GET = withHandler('api/users', 'GET', async (req) => {
  * POST /api/users  { email, password, fullName, role, seniorityDate, teamId? }
  */
 export const POST = withHandler('api/users', 'POST', async (req) => {
-  const { email, password, fullName, role, seniorityDate, teamId } = await parseBody(req);
-  const user = await usersAPI.createUser(email, password, fullName, role, seniorityDate, teamId);
+  const { email, password, fullName, role, seniorityDate, teamIds } = await parseBody(req);
+  const user = await usersAPI.createUser(email, password, fullName, role, seniorityDate, teamIds ?? []);
   return jsonOk(user, 201);
 });
 
@@ -54,7 +54,7 @@ export const POST = withHandler('api/users', 'POST', async (req) => {
  * PATCH /api/users  { id, fullName?, email?, role?, seniorityDate?, teamId?, isActive? }
  */
 export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
-  const { id, fullName, email, role, seniorityDate, teamId, isActive } = await parseBody(req);
+  const { id, fullName, email, role, seniorityDate, isActive, teamIds } = await parseBody(req);
   if (!id) return jsonOk({ error: 'Parametro id mancante' }, 400);
 
   const updates: Record<string, unknown> = {};
@@ -62,8 +62,8 @@ export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
   if (email !== undefined) updates.email = email;
   if (role !== undefined) updates.role = role;
   if (seniorityDate !== undefined) updates.seniority_date = seniorityDate;
-  if (teamId !== undefined) updates.team_id = teamId ?? null;
   if (isActive !== undefined) updates.is_active = isActive;
+  if (Array.isArray(teamIds)) updates.team_ids = teamIds;
 
   const user = await usersAPI.updateUser(id, updates as any);
   return jsonOk(user);

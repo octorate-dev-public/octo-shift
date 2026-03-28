@@ -37,6 +37,7 @@ export const teamsAPI = {
     name: string,
     description?: string,
     weeklyMeetingDay?: string,
+    color?: string,
   ): Promise<Team> {
     return log.withTiming('createTeam', { name, weeklyMeetingDay }, async () => {
       const { data, error } = await supabase
@@ -45,6 +46,7 @@ export const teamsAPI = {
           name,
           description: description ?? null,
           weekly_meeting_day: weeklyMeetingDay ?? null,
+          color: color ?? '#6366f1',
         })
         .select()
         .single();

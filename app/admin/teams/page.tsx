@@ -24,16 +24,24 @@ const DAY_OPTIONS = [
   { value: 'saturday', label: 'Sabato' },
 ];
 
+const PRESET_COLORS = [
+  '#6366f1', '#3b82f6', '#06b6d4', '#10b981',
+  '#84cc16', '#eab308', '#f97316', '#ef4444',
+  '#ec4899', '#8b5cf6', '#64748b', '#0f172a',
+];
+
 interface TeamFormState {
   name: string;
   description: string;
   weeklyMeetingDay: string;
+  color: string;
 }
 
 const emptyForm = (): TeamFormState => ({
   name: '',
   description: '',
   weeklyMeetingDay: '',
+  color: '#6366f1',
 });
 
 export default function TeamsPage() {
@@ -74,6 +82,7 @@ export default function TeamsPage() {
       name: team.name,
       description: team.description ?? '',
       weeklyMeetingDay: team.weekly_meeting_day ?? '',
+      color: team.color ?? '#6366f1',
     });
     setShowForm(true);
     setError(null);
@@ -99,6 +108,7 @@ export default function TeamsPage() {
         name: form.name.trim(),
         description: form.description.trim() || undefined,
         weeklyMeetingDay: form.weeklyMeetingDay || undefined,
+        color: form.color,
       };
 
       if (editingId) {
@@ -198,6 +208,34 @@ export default function TeamsPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Colore
+                </label>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setForm({ ...form, color: c })}
+                      className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110"
+                      style={{
+                        backgroundColor: c,
+                        borderColor: form.color === c ? '#1e40af' : 'transparent',
+                        outline: form.color === c ? '2px solid #93c5fd' : 'none',
+                      }}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={form.color}
+                    onChange={(e) => setForm({ ...form, color: e.target.value })}
+                    className="w-8 h-7 rounded cursor-pointer border border-gray-300"
+                    title="Colore personalizzato"
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="submit"
@@ -237,7 +275,10 @@ export default function TeamsPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white"
+                      style={{ backgroundColor: team.color ?? '#6366f1' }}
+                    >
                       {team.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>

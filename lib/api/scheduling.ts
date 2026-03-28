@@ -73,10 +73,11 @@ export const schedulingAPI = {
 
         // ---- Weekday logic ----
 
-        // Determine which users have their team meeting today
+        // Determine which users have their team meeting today (any of their teams)
         const meetingUserIds = new Set<string>();
         sortedUsers.forEach((u) => {
-          if (u.team_id && teamMeetingDay.get(u.team_id) === dayName) {
+          const ids = u.team_ids?.length ? u.team_ids : (u.team_id ? [u.team_id] : []);
+          if (ids.some((tid) => teamMeetingDay.get(tid) === dayName)) {
             meetingUserIds.add(u.id);
           }
         });
