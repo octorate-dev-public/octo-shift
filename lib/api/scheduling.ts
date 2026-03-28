@@ -19,6 +19,9 @@ export const schedulingAPI = {
   async generateMonthlySchedule(year: number, month: number): Promise<Shift[]> {
     return log.withTiming('generateMonthlySchedule', { year, month }, async () => {
       const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+      const workDays = await settingsAPI.getWorkDays();
+      const holidayDates = await settingsAPI.getHolidayDates();
+      const holidaySet = new Set(holidayDates);
       const allUsers = await usersAPI.getAllUsers();
 
       if (allUsers.length === 0) {
@@ -56,9 +59,9 @@ export const schedulingAPI = {
         const dateStr = formatDate(date);
         const dayOfWeek = date.getDay();
         const dayName = DAY_NAMES[dayOfWeek];
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isNonWorkingDay = !workDays.includes(dayName) || holidaySet.has(dateStr);
 
-        if (isWeekend) {
+        if (isNonWorkingDay) {
           for (const user of sortedUsers) {
             const lockKey = `${user.id}:${dateStr}`;
             if (lockedMap.has(lockKey)) {

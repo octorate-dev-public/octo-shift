@@ -9,8 +9,10 @@ interface DayShiftPanelProps {
   shifts: ShiftWithUser[];
   users: User[];
   maxCapacity: number;
+  isHoliday?: boolean;
   onClose: () => void;
   onShiftChange: (userId: string, date: string, newType: 'office' | 'smartwork') => Promise<void>;
+  onToggleHoliday?: (date: string) => Promise<void>;
 }
 
 const ITALIAN_DAYS = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
@@ -29,10 +31,13 @@ export default function DayShiftPanel({
   shifts,
   users,
   maxCapacity,
+  isHoliday = false,
   onClose,
   onShiftChange,
+  onToggleHoliday,
 }: DayShiftPanelProps) {
   const [loadingUsers, setLoadingUsers] = useState<Set<string>>(new Set());
+  const [holidayLoading, setHolidayLoading] = useState(false);
 
   if (!date) return null;
 
@@ -60,6 +65,16 @@ export default function DayShiftPanel({
     vacation: 'Ferie',
     permission: 'Permesso',
   };
+
+  async function handleHolidayToggle() {
+    if (!onToggleHoliday || !date) return;
+    setHolidayLoading(true);
+    try {
+      await onToggleHoliday(date);
+    } finally {
+      setHolidayLoading(false);
+    }
+  }
 
   async function handleChange(userId: string, newType: 'office' | 'smartwork') {
     setLoadingUsers((prev) => new Set(prev).add(userId));

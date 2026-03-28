@@ -12,6 +12,18 @@ const EU_TIMEZONES = [
   { value: 'UTC', label: 'UTC' },
 ];
 
+const ALL_DAYS = [
+  { key: 'monday', label: 'Lunedì' },
+  { key: 'tuesday', label: 'Martedì' },
+  { key: 'wednesday', label: 'Mercoledì' },
+  { key: 'thursday', label: 'Giovedì' },
+  { key: 'friday', label: 'Venerdì' },
+  { key: 'saturday', label: 'Sabato' },
+  { key: 'sunday', label: 'Domenica' },
+];
+
+const DEFAULT_WORK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+
 interface CardFeedback {
   status: 'idle' | 'loading' | 'success' | 'error';
   message: string;
@@ -23,10 +35,12 @@ export default function AdminSettingsPage() {
   const [maxOfficeCapacity, setMaxOfficeCapacity] = useState(30);
   const [onCallCount, setOnCallCount] = useState(1);
   const [timezone, setTimezone] = useState('Europe/Rome');
+  const [workDays, setWorkDays] = useState<string[]>(DEFAULT_WORK_DAYS);
 
   const [capacityFeedback, setCapacityFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [onCallFeedback, setOnCallFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [timezoneFeedback, setTimezoneFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+  const [workDaysFeedback, setWorkDaysFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
 
   const [loading, setLoading] = useState(true);
 
@@ -46,8 +60,11 @@ export default function AdminSettingsPage() {
         const parsed = parseInt(data.on_call_count, 10);
         if (!isNaN(parsed)) setOnCallCount(parsed);
       }
-      if (data.timezone) {
-        setTimezone(data.timezone);
+      if (data.timezone) setTimezone(data.timezone);
+      if (data.work_days) {
+        setWorkDays(data.work_days.split(',').map((d: string) => d.trim()).filter(Boolean));
+      } else {
+        setWorkDays(DEFAULT_WORK_DAYS);
       }
     } catch (err: unknown) {
       console.error('Errore nel caricamento delle impostazioni:', err);
@@ -73,16 +90,28 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleSaveCapacity = () => {
+  const handleSaveCapacity = () =>
     saveSetting('max_office_capacity', String(maxOfficeCapacity), setCapacityFeedback);
-  };
 
-  const handleSaveOnCallCount = () => {
+  const handleSaveOnCallCount = () =>
     saveSetting('on_call_count', String(onCallCount), setOnCallFeedback);
+
+  const handleSaveTimezone = () =>
+    saveSetting('timezone', timezone, setTimezoneFeedback);
+
+  const handleSaveWorkDays = () => {
+    if (workDays.length === 0) {
+      setWorkDaysFeedback({ status: 'error', message: 'Seleziona almeno un giorno lavorativo.' });
+      setTimeout(() => setWorkDaysFeedback(DEFAULT_FEEDBACK), 3000);
+      return;
+    }
+    saveSetting('work_days', workDays.join(','), setWorkDaysFeedback);
   };
 
-  const handleSaveTimezone = () => {
-    saveSetting('timezone', timezone, setTimezoneFeedback);
+  const toggleDay = (day: string) => {
+    setWorkDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
+    );
   };
 
   if (loading) {
@@ -104,6 +133,43 @@ export default function AdminSettingsPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {/* Card: Giorni Lavorativi */}
+          <div className="bg-white rounded-lg shadow p-6 space-y-4 md:col-span-2 xl:col-span-1">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Giorni Lavorativi</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Giorni della settimana considerati lavorativi per la generazione dello schedule.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ALL_DAYS.map((day) => {
+                const active = workDays.includes(day.key);
+                return (
+                  <button
+                    key={day.key}
+                    type="button"
+                    onClick={() => toggleDay(day.key)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      active
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
+            <FeedbackMessage feedback={workDaysFeedback} />
+            <button
+              onClick={handleSaveWorkDays}
+              disabled={workDaysFeedback.status === 'loading'}
+              className="w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {workDaysFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
+            </button>
+          </div>
+
           {/* Card: Capacità Ufficio */}
           <div className="bg-white rounded-lg shadow p-6 space-y-4">
             <div>

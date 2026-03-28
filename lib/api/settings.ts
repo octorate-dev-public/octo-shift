@@ -96,4 +96,40 @@ export const settingsAPI = {
   async setTimezone(timezone: string): Promise<void> {
     await this.setSetting('timezone', timezone);
   },
+
+  async getWorkDays(): Promise<string[]> {
+    const value = await this.getSetting('work_days');
+    if (!value) return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    return value.split(',').map((d: string) => d.trim()).filter(Boolean);
+  },
+
+  async setWorkDays(days: string[]): Promise<void> {
+    await this.setSetting('work_days', days.join(','));
+  },
+
+  async getHolidayDates(): Promise<string[]> {
+    return log.withTiming('getHolidayDates', {}, async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('key')
+        .like('key', 'holiday:%');
+      if (error) throw toAppError(error, 'Impossibile caricare le festività');
+      return (data || []).map((row: any) => (row.key as string).replace('holiday:', ''));
+    });
+  },
+
+  async addHoliday(date: string): Promise<void> {
+    await this.setSetting(`holiday:${date}`, '1');
+  },
+
+  async removeHoliday(date: string): Promise<void> {
+    await this.deleteSetting(`holiday:${date}`);
+  },
+
+  async deleteSetting(key: string): Promise<void> {
+    return log.withTiming('deleteSetting', { key }, async () => {
+      const { error } = await supabase.from('settings').delete().eq('key', key);
+      if (error) throw toAppError(error, `Impossibile eliminare l'impostazione "${key}"`);
+    });
+  },
 };

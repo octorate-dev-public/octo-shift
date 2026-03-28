@@ -1,4 +1,4 @@
-import { withHandler, jsonOk, parseBody } from '@/lib/api-handler';
+import { withHandler, jsonOk, parseBody, noContent } from '@/lib/api-handler';
 import { settingsAPI } from '@/lib/api/settings';
 
 /**
@@ -24,4 +24,14 @@ export const POST = withHandler('api/settings', 'POST', async (req) => {
   const { key, value } = await parseBody(req);
   const setting = await settingsAPI.setSetting(key, value);
   return jsonOk(setting, 201);
+});
+
+/**
+ * DELETE /api/settings?key=...
+ */
+export const DELETE = withHandler('api/settings', 'DELETE', async (req) => {
+  const key = req.nextUrl.searchParams.get('key');
+  if (!key) return jsonOk({ error: 'Parametro key mancante' }, 400);
+  await settingsAPI.deleteSetting(key);
+  return noContent();
 });
