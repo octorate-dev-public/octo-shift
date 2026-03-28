@@ -15,6 +15,7 @@ export default function CalendarPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [maxCapacity, setMaxCapacity] = useState(30);
   const [holidays, setHolidays] = useState<string[]>([]);
+  const [workDays, setWorkDays] = useState<string[]>(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,6 +42,9 @@ export default function CalendarPage() {
         .filter((k) => k.startsWith('holiday:'))
         .map((k) => k.replace('holiday:', ''));
       setHolidays(newHolidays);
+      if (settingsData.work_days) {
+        setWorkDays(settingsData.work_days.split(',').map((d: string) => d.trim()).filter(Boolean));
+      }
     } catch (error: any) {
       console.error('Error loading calendar:', error);
     } finally {
@@ -87,6 +91,7 @@ export default function CalendarPage() {
             teams={teams}
             users={users}
             holidays={holidays}
+            workDays={workDays}
             editable={false}
           />
         )}

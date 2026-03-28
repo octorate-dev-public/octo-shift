@@ -175,33 +175,38 @@ export default function Calendar({
     days.forEach((date) => {
       const dateStr = localDateStr(date);
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
-      shiftLookup.get(dateStr)?.forEach((s) => {
-        if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
-      });
+      if (!nonWorkingSet.has(dateStr)) {
+        shiftLookup.get(dateStr)?.forEach((s) => {
+          if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
+        });
+      }
       map.set(dateStr, totals);
     });
     return map;
-  }, [days, shiftLookup]);
+  }, [days, shiftLookup, nonWorkingSet]);
 
   const userTotals = useMemo(() => {
     const map = new Map<string, Record<MatrixType, number>>();
     matrixUsers.forEach((u) => {
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
       shifts.forEach((s) => {
-        if (s.user_id === u.id && s.shift_type in totals) totals[s.shift_type as MatrixType]++;
+        // Exclude non-working days from personal totals
+        if (s.user_id === u.id && s.shift_type in totals && !nonWorkingSet.has(s.shift_date)) {
+          totals[s.shift_type as MatrixType]++;
+        }
       });
       map.set(u.id, totals);
     });
     return map;
-  }, [matrixUsers, shifts]);
+  }, [matrixUsers, shifts, nonWorkingSet]);
 
   const grandTotals = useMemo(() => {
     const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
     shifts.forEach((s) => {
-      if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
+      if (s.shift_type in totals && !nonWorkingSet.has(s.shift_date)) totals[s.shift_type as MatrixType]++;
     });
     return totals;
-  }, [shifts]);
+  }, [shifts, nonWorkingSet]);
 
   // ── Swap mode handlers ──────────────────────────────────────
   const toggleSwapMode = () => {
@@ -360,9 +365,10 @@ export default function Calendar({
                     {/* Per-user shift cells */}
                     {matrixUsers.map((u) => {
                       const shift = rowShifts?.get(u.id);
-                      const type = shift?.shift_type ?? null;
+                      // On non-working days, never show shift data regardless of DB content
+                      const type = (!isNonWorking && shift?.shift_type) ? shift.shift_type : null;
                       const selected = isSwapSelected(u.id, dateStr);
-                      const clickable = swapMode && onSwapShifts && !swapping;
+                      const clickable = swapMode && onSwapShifts && !swapping && !isNonWorking;
 
                       return (
                         <td
@@ -372,22 +378,26 @@ export default function Calendar({
                           }`}
                           onClick={() => clickable && handleCellClick(u.id, dateStr, type)}
                         >
-                          <div
-                            className={`rounded px-1 py-0.5 text-[11px] font-medium transition-all ${
-                              selected
-                                ? 'ring-2 ring-indigo-500 ring-offset-1 scale-105'
-                                : clickable
-                                ? 'hover:ring-2 hover:ring-indigo-300 hover:scale-105'
-                                : ''
-                            }`}
-                            style={
-                              type
-                                ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
-                                : { color: '#d1d5db' }
-                            }
-                          >
-                            {type ? SHIFT_LABELS[type] ?? type : '—'}
-                          </div>
+                          {isNonWorking ? (
+                            <div className="text-[10px]" style={{ color: '#e5e7eb' }}>—</div>
+                          ) : (
+                            <div
+                              className={`rounded px-1 py-0.5 text-[11px] font-medium transition-all ${
+                                selected
+                                  ? 'ring-2 ring-indigo-500 ring-offset-1 scale-105'
+                                  : clickable
+                                  ? 'hover:ring-2 hover:ring-indigo-300 hover:scale-105'
+                                  : ''
+                              }`}
+                              style={
+                                type
+                                  ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
+                                  : { color: '#d1d5db' }
+                              }
+                            >
+                              {type ? SHIFT_LABELS[type] ?? type : '—'}
+                            </div>
+                          )}
                         </td>
                       );
                     })}
@@ -493,7 +503,9 @@ export default function Calendar({
             const dow = date.getDay();
             const isWeekend = dow === 0 || dow === 6;
             const isHoliday = holidaySet.has(dateStr);
-            const cellShifts = dayShifts[dateStr] || [];
+            const isNonWorkingGrid = nonWorkingSet.has(dateStr);
+            // On non-working days, don't render stale DB shifts
+            const cellShifts = isNonWorkingGrid ? [] : (dayShifts[dateStr] || []);
             const officeCount = cellShifts.filter((s) => s.shift_type === 'office').length;
             const isOverCapacity = officeCount > maxCapacity;
             const isSelected = selectedDate === dateStr;

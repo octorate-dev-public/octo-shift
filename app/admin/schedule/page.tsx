@@ -18,6 +18,7 @@ export default function SchedulePage() {
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
   const [maxCapacity, setMaxCapacity] = useState(30);
   const [holidays, setHolidays] = useState<string[]>([]);
+  const [workDays, setWorkDays] = useState<string[]>(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -45,11 +46,15 @@ export default function SchedulePage() {
       setMaxCapacity(
         settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30,
       );
-      // Parse holidays from settings (key = "holiday:YYYY-MM-DD")
+      // Parse holidays from settings
       const newHolidays = Object.keys(settingsData)
         .filter((k) => k.startsWith('holiday:'))
         .map((k) => k.replace('holiday:', ''));
       setHolidays(newHolidays);
+      // Parse work days from settings
+      if (settingsData.work_days) {
+        setWorkDays(settingsData.work_days.split(',').map((d: string) => d.trim()).filter(Boolean));
+      }
     } catch (error: any) {
       console.error('Error loading data:', error);
     } finally {
@@ -182,6 +187,7 @@ export default function SchedulePage() {
                 teams={teams}
                 users={users}
                 holidays={holidays}
+                workDays={workDays}
                 maxCapacity={maxCapacity}
                 onDayClick={setSelectedDate}
                 selectedDate={selectedDate}
