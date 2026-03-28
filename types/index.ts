@@ -9,7 +9,8 @@ export interface User {
   full_name: string;
   role: UserRole;
   seniority_date: string;
-  team_id: string | null;
+  team_id: string | null; // legacy single-team field, kept for DB compat
+  team_ids: string[];     // populated from user_teams join table
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -20,6 +21,7 @@ export interface Team {
   name: string;
   description: string | null;
   weekly_meeting_day: string | null; // 'monday', 'tuesday', etc.
+  color: string; // hex color, e.g. '#6366f1'
   created_at: string;
   updated_at: string;
 }
