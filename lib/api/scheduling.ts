@@ -62,13 +62,11 @@ export const schedulingAPI = {
         const isNonWorkingDay = !workDays.includes(dayName) || holidaySet.has(dateStr);
 
         if (isNonWorkingDay) {
+          // Non-working day: skip completely. Only preserve explicitly locked shifts.
           for (const user of sortedUsers) {
             const lockKey = `${user.id}:${dateStr}`;
             if (lockedMap.has(lockKey)) {
-              // preserve the locked shift type
               newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedMap.get(lockKey)! });
-            } else {
-              newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: 'smartwork' });
             }
           }
           continue;
