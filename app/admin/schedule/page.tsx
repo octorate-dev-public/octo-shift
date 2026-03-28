@@ -62,6 +62,27 @@ export default function SchedulePage() {
     await loadData();
   };
 
+  const handleSwapShifts = async (a: SwapCell, b: SwapCell) => {
+    const tasks: Promise<any>[] = [];
+
+    // Position A → gets B's type
+    if (b.shiftType) {
+      tasks.push(api.post('/api/shifts', { userId: a.userId, shiftDate: a.date, shiftType: b.shiftType }));
+    } else if (a.shiftType) {
+      tasks.push(api.del(`/api/shifts?userId=${a.userId}&shiftDate=${a.date}`));
+    }
+
+    // Position B → gets A's type
+    if (a.shiftType) {
+      tasks.push(api.post('/api/shifts', { userId: b.userId, shiftDate: b.date, shiftType: a.shiftType }));
+    } else if (b.shiftType) {
+      tasks.push(api.del(`/api/shifts?userId=${b.userId}&shiftDate=${b.date}`));
+    }
+
+    await Promise.all(tasks);
+    await loadData();
+  };
+
   const handleToggleHoliday = async (date: string) => {
     if (holidays.includes(date)) {
       await api.del(`/api/settings?key=${encodeURIComponent(`holiday:${date}`)}`);
@@ -165,6 +186,7 @@ export default function SchedulePage() {
                 onDayClick={setSelectedDate}
                 selectedDate={selectedDate}
                 editable={true}
+                onSwapShifts={handleSwapShifts}
               />
             )}
           </div>

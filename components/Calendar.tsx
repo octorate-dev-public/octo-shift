@@ -10,6 +10,9 @@ export interface SwapCell {
   shiftType: string | null;
 }
 
+const DAY_NAMES_CAL = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const DEFAULT_WORK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+
 interface CalendarProps {
   year: number;
   month: number; // 1-based (1=January … 12=December)
@@ -18,6 +21,7 @@ interface CalendarProps {
   teams?: Team[];
   users?: User[];
   holidays?: string[];
+  workDays?: string[];
   onDayClick?: (date: string) => void;
   selectedDate?: string | null;
   editable?: boolean;
@@ -89,6 +93,7 @@ export default function Calendar({
   teams = [],
   users,
   holidays = [],
+  workDays,
   onDayClick,
   selectedDate,
   editable = false,
@@ -122,6 +127,18 @@ export default function Calendar({
   const monthName = new Date(year, m0).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
   const firstDay = new Date(year, m0, 1).getDay();
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
+
+  // Set of all non-working date strings for this month (weekends + holidays + non-work-days)
+  const effectiveWorkDays = workDays ?? DEFAULT_WORK_DAYS;
+  const nonWorkingSet = useMemo(() => {
+    const s = new Set<string>();
+    days.forEach((date) => {
+      const dateStr = localDateStr(date);
+      const dayName = DAY_NAMES_CAL[date.getDay()];
+      if (!effectiveWorkDays.includes(dayName) || holidaySet.has(dateStr)) s.add(dateStr);
+    });
+    return s;
+  }, [days, effectiveWorkDays, holidaySet]);
 
   const teamColorMap = useMemo(() => {
     const map = new Map<string, string>();

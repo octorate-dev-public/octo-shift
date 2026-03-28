@@ -37,8 +37,10 @@ export const schedulingAPI = {
       });
       log.info('generateMonthlySchedule', `Trovati ${lockedMap.size} turni bloccati da preservare`);
 
+      const { supabase } = await import('../supabase');
+
       // Fetch teams for meeting-day logic
-      const { data: teamsRaw } = await (await import('../supabase')).supabase
+      const { data: teamsRaw } = await supabase
         .from('teams')
         .select('id, name, weekly_meeting_day');
       const teamMeetingDay = new Map<string, string>();
@@ -61,6 +63,25 @@ export const schedulingAPI = {
 
       const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const monthDays = getMonthDays(year, month - 1); // getMonthDays expects 0-based month
+
+      // Collect non-working dates so we can delete stale shifts from previous runs
+      const nonWorkingDates = monthDays
+        .filter((date) => {
+          const dateStr = formatDate(date);
+          const dayName = DAY_NAMES[date.getDay()];
+          return !workDays.includes(dayName) || holidaySet.has(dateStr);
+        })
+        .map((date) => formatDate(date));
+
+      if (nonWorkingDates.length > 0) {
+        await supabase
+          .from('shifts')
+          .delete()
+          .in('shift_date', nonWorkingDates)
+          .eq('locked', false);
+        log.info('generateMonthlySchedule', `Rimossi turni su ${nonWorkingDates.length} giorni non lavorativi`);
+      }
+
       const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType }> = [];
 
       for (const date of monthDays) {
