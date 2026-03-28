@@ -14,6 +14,19 @@ function mapUser(raw: any): User {
 
 const USER_SELECT = '*, user_teams(team_id)';
 
+/** Try joined select; if user_teams table doesn't exist yet, fall back to plain select */
+async function selectUsers(query: ReturnType<typeof supabase.from>): Promise<any[]> {
+  const { data, error } = await (query as any).select(USER_SELECT);
+  if (error) {
+    // user_teams table might not exist yet (migration pending) — graceful fallback
+    log.warn('selectUsers', 'Fallback: user_teams non disponibile', { code: error.code });
+    const { data: plain, error: e2 } = await (query as any).select('*');
+    if (e2) throw toAppError(e2, 'Impossibile caricare gli utenti');
+    return (plain || []).map((u: any) => ({ ...u, team_ids: u.team_id ? [u.team_id] : [] }));
+  }
+  return (data || []).map(mapUser);
+}
+
 export const usersAPI = {
   async getAllUsers(): Promise<User[]> {
     return log.withTiming('getAllUsers', {}, async () => {
@@ -23,7 +36,17 @@ export const usersAPI = {
         .eq('is_active', true)
         .order('full_name', { ascending: true });
 
-      if (error) throw toAppError(error, 'Impossibile caricare gli utenti');
+      if (error) {
+        log.warn('getAllUsers', 'Fallback senza user_teams', { code: error.code });
+        const { data: plain, error: e2 } = await supabase
+          .from('users')
+          .select('*')
+          .eq('is_active', true)
+          .order('full_name', { ascending: true });
+        if (e2) throw toAppError(e2, 'Impossibile caricare gli utenti');
+        return (plain || []).map((u: any) => ({ ...u, team_ids: u.team_id ? [u.team_id] : [] }));
+      }
+
       log.info('getAllUsers', `Trovati ${(data || []).length} utenti attivi`);
       return (data || []).map(mapUser);
     });
