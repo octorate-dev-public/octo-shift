@@ -146,9 +146,20 @@ export default function UsersPage() {
     }
   };
 
-  const getTeamName = (teamId: string | null): string => {
-    if (!teamId) return '—';
-    return teams.find((t) => t.id === teamId)?.name ?? '—';
+  const getTeamNames = (teamIds: string[]): string => {
+    if (!teamIds || teamIds.length === 0) return '—';
+    return teamIds
+      .map((id) => teams.find((t) => t.id === id)?.name ?? id)
+      .join(', ');
+  };
+
+  const toggleTeam = (teamId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      teamIds: prev.teamIds.includes(teamId)
+        ? prev.teamIds.filter((id) => id !== teamId)
+        : [...prev.teamIds, teamId],
+    }));
   };
 
   const avatarColor = (role: string) =>
@@ -256,21 +267,39 @@ export default function UsersPage() {
                 />
               </div>
 
-              {/* Team */}
+              {/* Teams (multi) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
-                <select
-                  value={form.teamId}
-                  onChange={(e) => setForm({ ...form, teamId: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Nessun team</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Team <span className="text-gray-400 font-normal">(seleziona uno o più)</span>
+                </label>
+                {teams.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Nessun team disponibile</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {teams.map((t) => {
+                      const selected = form.teamIds.includes(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => toggleTeam(t.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                            selected
+                              ? 'border-transparent text-white'
+                              : 'border-gray-300 text-gray-600 bg-white hover:border-gray-400'
+                          }`}
+                          style={selected ? { backgroundColor: t.color ?? '#6366f1' } : {}}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: selected ? 'white' : (t.color ?? '#6366f1') }}
+                          />
+                          {t.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Buttons */}
@@ -358,8 +387,25 @@ export default function UsersPage() {
                             {user.role === 'admin' ? 'Amministratore' : 'Utente'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {getTeamName(user.team_id)}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1">
+                            {(user.team_ids ?? []).length === 0 ? (
+                              <span className="text-sm text-gray-400">—</span>
+                            ) : (
+                              (user.team_ids ?? []).map((tid) => {
+                                const t = teams.find((x) => x.id === tid);
+                                return (
+                                  <span
+                                    key={tid}
+                                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                                    style={{ backgroundColor: t?.color ?? '#6366f1' }}
+                                  >
+                                    {t?.name ?? tid.slice(0, 6)}
+                                  </span>
+                                );
+                              })
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {formatSeniority(user.seniority_date)}
