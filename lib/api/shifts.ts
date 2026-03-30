@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { Shift, ShiftWithUser, ShiftType } from '@/types';
+import { Shift, ShiftWithUser, ShiftType, LeaveType } from '@/types';
 import { createLogger, toAppError } from '../logger';
 
 const log = createLogger('shiftsAPI');
@@ -52,14 +52,19 @@ export const shiftsAPI = {
     });
   },
 
-  async upsertShift(userId: string, shiftDate: string, shiftType: ShiftType): Promise<Shift> {
-    return log.withTiming('upsertShift', { userId, shiftDate, shiftType }, async () => {
+  async upsertShift(userId: string, shiftDate: string, shiftType: ShiftType, leaveType?: LeaveType | null): Promise<Shift> {
+    return log.withTiming('upsertShift', { userId, shiftDate, shiftType, leaveType }, async () => {
+      const row: Record<string, unknown> = {
+        user_id: userId,
+        shift_date: shiftDate,
+        shift_type: shiftType,
+      };
+      // Explicitly set leave_type (null clears it)
+      if (leaveType !== undefined) row.leave_type = leaveType ?? null;
+
       const { data, error } = await supabase
         .from('shifts')
-        .upsert(
-          { user_id: userId, shift_date: shiftDate, shift_type: shiftType },
-          { onConflict: 'user_id,shift_date' },
-        )
+        .upsert(row, { onConflict: 'user_id,shift_date' })
         .select()
         .single();
 
@@ -68,8 +73,24 @@ export const shiftsAPI = {
     });
   },
 
+  /** Update only the leave_type of an existing shift (without changing shift_type) */
+  async setLeaveType(userId: string, shiftDate: string, leaveType: LeaveType | null): Promise<Shift> {
+    return log.withTiming('setLeaveType', { userId, shiftDate, leaveType }, async () => {
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ leave_type: leaveType })
+        .eq('user_id', userId)
+        .eq('shift_date', shiftDate)
+        .select()
+        .single();
+
+      if (error) throw toAppError(error, 'Impossibile aggiornare il tipo di assenza');
+      return data;
+    });
+  },
+
   async bulkUpsertShifts(
-    shifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType }>,
+    shifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type?: LeaveType | null }>,
   ): Promise<Shift[]> {
     return log.withTiming('bulkUpsertShifts', { count: shifts.length }, async () => {
       if (shifts.length === 0) {
@@ -146,16 +167,20 @@ export const shiftsAPI = {
     return log.withTiming('getShiftStatsForDate', { date }, async () => {
       const { data, error } = await supabase
         .from('shifts')
-        .select('shift_type, id')
+        .select('shift_type, leave_type, id')
         .eq('shift_date', date);
 
       if (error) throw toAppError(error, 'Impossibile caricare le statistiche dei turni');
 
       const stats = { office: 0, smartwork: 0, sick: 0, vacation: 0, permission: 0 };
       (data || []).forEach((shift: any) => {
-        if (shift.shift_type in stats) {
-          stats[shift.shift_type as keyof typeof stats]++;
-        }
+        // Count work location
+        if (shift.shift_type === 'office') stats.office++;
+        else if (shift.shift_type === 'smartwork') stats.smartwork++;
+        // Count leave overlay (independent)
+        if (shift.leave_type === 'sick') stats.sick++;
+        else if (shift.leave_type === 'vacation') stats.vacation++;
+        else if (shift.leave_type === 'permission') stats.permission++;
       });
       return stats;
     });

@@ -3,7 +3,7 @@ import { usersAPI } from './users';
 import { settingsAPI } from './settings';
 import { preferencesAPI } from './preferences';
 import { getMonthDays, getSeniorityDays, formatDate } from '../utils';
-import { User, Shift, ShiftType, PreferenceType } from '@/types';
+import { User, Shift, ShiftType, LeaveType, PreferenceType } from '@/types';
 import { createLogger, toAppError } from '../logger';
 
 const log = createLogger('schedulingAPI');
@@ -12,10 +12,15 @@ export const schedulingAPI = {
   /**
    * Generate the monthly schedule respecting:
    *  1. Max office capacity
-   *  2. Team meeting days → team members get office priority
-   *  3. Seniority → when capacity overflows on meeting days the most-senior stay
-   *  4. Locked shifts are never touched
-   *  5. Weekends → everyone smartwork
+   *  2. Locked shifts are never touched
+   *  3. Weekends/holidays → skipped
+   *  4. renounce_smart users → always office first (excluded from equity pool)
+   *  5. Equity-first: users with more accumulated smart days than the running
+   *     average get higher office priority, ensuring equitable distribution
+   *     regardless of daily preferences
+   *  6. Preferences (home/office/indifferent) act as secondary score modifiers
+   *  7. Team meeting days add office priority
+   *  8. Seniority is the final tiebreaker
    */
   async generateMonthlySchedule(year: number, month: number): Promise<Shift[]> {
     return log.withTiming('generateMonthlySchedule', { year, month }, async () => {
@@ -32,9 +37,13 @@ export const schedulingAPI = {
 
       // Fetch existing locked shifts so we can preserve them
       const existingShifts = await shiftsAPI.getMonthShifts(year, month);
-      const lockedMap = new Map<string, ShiftType>(); // key = `userId:date`
+      const lockedMap = new Map<string, { shiftType: ShiftType; leaveType: LeaveType | null }>(); // key = `userId:date`
+      // Also track existing leave_type for ALL shifts (not just locked) so we preserve them
+      const existingLeaveMap = new Map<string, LeaveType | null>();
       existingShifts.forEach((s) => {
-        if (s.locked) lockedMap.set(`${s.user_id}:${s.shift_date}`, s.shift_type);
+        const key = `${s.user_id}:${s.shift_date}`;
+        if (s.locked) lockedMap.set(key, { shiftType: s.shift_type, leaveType: s.leave_type });
+        if (s.leave_type) existingLeaveMap.set(key, s.leave_type);
       });
       log.info('generateMonthlySchedule', `Trovati ${lockedMap.size} turni bloccati da preservare`);
 
@@ -54,21 +63,31 @@ export const schedulingAPI = {
         getSeniorityDays(b.seniority_date) - getSeniorityDays(a.seniority_date),
       );
 
-      // Seniority index for stable tiebreaking when smart days are equal
+      // Seniority index for stable tiebreaking (lower index = more senior)
       const seniorityIndex = new Map<string, number>();
       sortedUsers.forEach((u, i) => seniorityIndex.set(u.id, i));
 
-      // Running smart-day counter per user — drives fairness across the month
+      // Running smart-day counter per user — drives equity across the month
+      // renounce_smart users are tracked but excluded from the equity average
       const userSmartDays = new Map<string, number>();
       sortedUsers.forEach((u) => userSmartDays.set(u.id, 0));
 
       // Load user preferences for this month
       const monthYearStr = `${year}-${String(month).padStart(2, '0')}`;
       const allPreferences = await preferencesAPI.getAllMonthPreferences(monthYearStr);
-      // Build preference map: `userId:date` → preference
       const prefMap = new Map<string, PreferenceType>();
       allPreferences.forEach((p) => prefMap.set(`${p.user_id}:${p.preference_date}`, p.preference));
       log.info('generateMonthlySchedule', `Caricate ${allPreferences.length} preferenze utente`);
+
+      // Scoring weights for equity-first office assignment:
+      //   equity term: each smart day above average is worth EQUITY_WEIGHT priority points
+      //   preference term: office preference worth ~2 smart-days of priority over home
+      //   meeting term: meeting day worth ~1.5 smart-days of priority
+      const EQUITY_WEIGHT = 2;
+      const MEETING_BONUS = 3;
+      const PREF_OFFICE_SCORE = 4;
+      const PREF_INDIFF_SCORE = 2;
+      // home preference = 0 (no office bonus)
 
       const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const monthDays = getMonthDays(year, month - 1); // getMonthDays expects 0-based month
@@ -91,7 +110,7 @@ export const schedulingAPI = {
         log.info('generateMonthlySchedule', `Rimossi turni su ${nonWorkingDates.length} giorni non lavorativi`);
       }
 
-      const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType }> = [];
+      const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type: LeaveType | null }> = [];
 
       for (const date of monthDays) {
         const dateStr = formatDate(date);
@@ -104,10 +123,9 @@ export const schedulingAPI = {
           for (const user of sortedUsers) {
             const lockKey = `${user.id}:${dateStr}`;
             if (lockedMap.has(lockKey)) {
-              const lockedType = lockedMap.get(lockKey)!;
-              newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedType });
-              // Locked smart on a non-working day still counts for the balance
-              if (lockedType === 'smartwork') {
+              const locked = lockedMap.get(lockKey)!;
+              newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
+              if (locked.shiftType === 'smartwork') {
                 userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
               }
             }
@@ -115,9 +133,9 @@ export const schedulingAPI = {
           continue;
         }
 
-        // ---- Working day logic ----
+        // ── Working day ──────────────────────────────────────────────
 
-        // 1. Determine which users have their team meeting today
+        // 1. Which users have a team meeting today?
         const meetingUserIds = new Set<string>();
         sortedUsers.forEach((u) => {
           const ids = u.team_ids?.length ? u.team_ids : (u.team_id ? [u.team_id] : []);
@@ -126,88 +144,74 @@ export const schedulingAPI = {
           }
         });
 
-        // 2. Count already-locked office shifts for capacity
+        // 2. Count locked-office shifts toward today's capacity
         let officeCount = 0;
         sortedUsers.forEach((u) => {
           const lockKey = `${u.id}:${dateStr}`;
-          if (lockedMap.has(lockKey) && lockedMap.get(lockKey) === 'office') officeCount++;
+          if (lockedMap.has(lockKey) && lockedMap.get(lockKey)!.shiftType === 'office') officeCount++;
         });
 
-        // 3. Build ordered list considering preferences:
-        //    Priority tiers (higher = assigned to office first):
-        //    a) Meeting day users who prefer office (or indifferent)
-        //    b) Non-meeting users who prefer office
-        //    c) Meeting day users who are indifferent
-        //    d) Non-meeting indifferent users (fairness sort: most smart days first, seniority tiebreak)
-        //    e) Users who prefer home (assigned to smartwork unless capacity allows)
-        //
-        //    Within each tier: seniority breaks ties.
-
-        const getPref = (userId: string): PreferenceType =>
-          prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
-
-        // Separate into preference groups
-        const wantsOffice: User[] = [];
-        const indifferentMeeting: User[] = [];
-        const indifferentOther: User[] = [];
-        const wantsHome: User[] = [];
-
-        for (const user of sortedUsers) {
-          if (lockedMap.has(`${user.id}:${dateStr}`)) continue; // handled separately
-          const pref = getPref(user.id);
-          const hasMeeting = meetingUserIds.has(user.id);
-
-          if (pref === 'office') {
-            wantsOffice.push(user);
-          } else if (pref === 'home') {
-            wantsHome.push(user);
-          } else if (hasMeeting) {
-            indifferentMeeting.push(user);
-          } else {
-            indifferentOther.push(user);
-          }
-        }
-
-        // Sort indifferentOther by fairness (most smart days → office priority), seniority tiebreak
-        indifferentOther.sort((a, b) => {
-          const diff = (userSmartDays.get(b.id) ?? 0) - (userSmartDays.get(a.id) ?? 0);
-          if (diff !== 0) return diff;
-          return (seniorityIndex.get(a.id) ?? 0) - (seniorityIndex.get(b.id) ?? 0);
-        });
-
-        // When wantsOffice has more people than remaining capacity, seniority decides who gets in
-        // (already sorted by seniority via sortedUsers order)
-
-        // Final order: office-preferring first, then meeting-indifferent, then other-indifferent, then home-preferring
-        const officeFirst = [...wantsOffice, ...indifferentMeeting, ...indifferentOther, ...wantsHome];
-
-        // 4. Handle locked shifts first
+        // 3. Persist locked shifts
         for (const user of sortedUsers) {
           const lockKey = `${user.id}:${dateStr}`;
           if (lockedMap.has(lockKey)) {
-            const lockedType = lockedMap.get(lockKey)!;
-            newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedType });
-            if (lockedType === 'smartwork') {
+            const locked = lockedMap.get(lockKey)!;
+            newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
+            if (locked.shiftType === 'smartwork') {
               userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
             }
           }
         }
 
-        // 5. Assign non-locked users respecting preference order
-        for (const user of officeFirst) {
+        // 4. Split non-locked users into renouncing vs regular
+        //    renounce_smart = true → waives smart days, gets highest office priority,
+        //    and is excluded from the equity average so they don't inflate it
+        const unlockedUsers = sortedUsers.filter((u) => !lockedMap.has(`${u.id}:${dateStr}`));
+        const renouncingUnlocked = unlockedUsers.filter((u) => u.renounce_smart);
+        const regularUnlocked = unlockedUsers.filter((u) => !u.renounce_smart);
+
+        // 5. Compute running equity average over regular (non-renouncing) users only
+        const avgSmartDays = regularUnlocked.length > 0
+          ? regularUnlocked.reduce((sum, u) => sum + (userSmartDays.get(u.id) ?? 0), 0) / regularUnlocked.length
+          : 0;
+
+        // 6. Score each regular user for office assignment (higher = more office priority)
+        //    Equity is primary: surplus smart days above average push toward office.
+        //    Preference is secondary: can shift priority by ~1–2 smart-days worth,
+        //    so home users get corrected once they're ~2 days above average.
+        const getPref = (userId: string): PreferenceType =>
+          prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
+
+        const scoreUser = (user: User): number => {
+          const smartDays = userSmartDays.get(user.id) ?? 0;
+          const equityScore = (smartDays - avgSmartDays) * EQUITY_WEIGHT;
+          const meetingBonus = meetingUserIds.has(user.id) ? MEETING_BONUS : 0;
           const pref = getPref(user.id);
+          const prefScore = pref === 'office' ? PREF_OFFICE_SCORE : pref === 'indifferent' ? PREF_INDIFF_SCORE : 0;
+          const seniorityTiebreak = -(seniorityIndex.get(user.id) ?? 0) * 0.01;
+          return equityScore + meetingBonus + prefScore + seniorityTiebreak;
+        };
 
-          // If user wants home and there are still office slots → assign smartwork anyway
-          // (unless everyone who wants office is already assigned and capacity remains)
-          if (pref === 'home') {
-            // Honour home preference: assign smartwork
-            newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: 'smartwork' });
-            userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
-            continue;
-          }
+        regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));
 
+        // 7. Assign renouncing users first (office if capacity, else smart)
+        for (const user of renouncingUnlocked) {
+          const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
           const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
-          newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type });
+          newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
+          if (type === 'office') {
+            officeCount++;
+          } else {
+            // Capacity forced them into smart — still track, but they're outside the equity pool
+            userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
+          }
+        }
+
+        // 8. Assign regular users by equity score (top scorers → office)
+        for (const user of regularUnlocked) {
+          const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
+          const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
+          newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
           if (type === 'office') {
             officeCount++;
           } else {

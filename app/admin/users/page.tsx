@@ -5,6 +5,7 @@ import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { User, Team } from '@/types';
 import { getInitials, getSeniorityDays } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 
 interface UserFormState {
   fullName: string;
@@ -13,6 +14,7 @@ interface UserFormState {
   role: 'admin' | 'user';
   seniorityDate: string;
   teamIds: string[];
+  onCallAvailable: boolean;
 }
 
 const emptyForm = (): UserFormState => ({
@@ -22,7 +24,13 @@ const emptyForm = (): UserFormState => ({
   role: 'user',
   seniorityDate: '',
   teamIds: [],
+  onCallAvailable: true,
 });
+
+function generateRandomPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
 
 function formatSeniority(seniorityDate: string): string {
   const days = getSeniorityDays(seniorityDate);
@@ -42,6 +50,8 @@ export default function UsersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm());
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetStatus, setResetStatus] = useState<Record<string, 'idle' | 'sending' | 'sent' | 'error'>>({});
 
   useEffect(() => {
     loadData();
@@ -67,6 +77,7 @@ export default function UsersPage() {
     setEditingId(null);
     setForm(emptyForm());
     setShowForm(true);
+    setShowPassword(false);
     setError(null);
   };
 
@@ -79,8 +90,10 @@ export default function UsersPage() {
       role: user.role,
       seniorityDate: user.seniority_date,
       teamIds: user.team_ids ?? [],
+      onCallAvailable: user.on_call_available ?? true,
     });
     setShowForm(true);
+    setShowPassword(false);
     setError(null);
   };
 
@@ -89,6 +102,27 @@ export default function UsersPage() {
     setEditingId(null);
     setForm(emptyForm());
     setError(null);
+  };
+
+  const handleGeneratePassword = () => {
+    const pwd = generateRandomPassword();
+    setForm((prev) => ({ ...prev, password: pwd }));
+    setShowPassword(true);
+  };
+
+  const handleResetPassword = async (user: User) => {
+    setResetStatus((prev) => ({ ...prev, [user.id]: 'sending' }));
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+      });
+      if (error) throw error;
+      setResetStatus((prev) => ({ ...prev, [user.id]: 'sent' }));
+      setTimeout(() => setResetStatus((prev) => ({ ...prev, [user.id]: 'idle' })), 4000);
+    } catch (e: any) {
+      setResetStatus((prev) => ({ ...prev, [user.id]: 'error' }));
+      alert(`Errore reset password: ${e.message}`);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,6 +144,7 @@ export default function UsersPage() {
           role: form.role,
           seniorityDate: form.seniorityDate,
           teamIds: form.teamIds,
+          onCallAvailable: form.onCallAvailable,
         });
       } else {
         await api.post('/api/users', {
@@ -144,13 +179,6 @@ export default function UsersPage() {
     } catch (e: any) {
       alert(`Errore: ${e.message}`);
     }
-  };
-
-  const getTeamNames = (teamIds: string[]): string => {
-    if (!teamIds || teamIds.length === 0) return '—';
-    return teamIds
-      .map((id) => teams.find((t) => t.id === id)?.name ?? id)
-      .join(', ');
   };
 
   const toggleTeam = (teamId: string) => {
@@ -229,14 +257,35 @@ export default function UsersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Password <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Almeno 8 caratteri"
-                    required
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Almeno 8 caratteri"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGeneratePassword}
+                      className="px-3 py-2 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors whitespace-nowrap"
+                      title="Genera password casuale"
+                    >
+                      Genera
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="px-2 py-2 text-gray-400 hover:text-gray-600 transition-colors"
+                      title={showPassword ? 'Nascondi' : 'Mostra'}
+                    >
+                      {showPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+                  {form.password && (
+                    <p className="mt-1 text-xs text-gray-500 font-mono truncate">{form.password}</p>
+                  )}
                 </div>
               )}
 
@@ -302,6 +351,24 @@ export default function UsersPage() {
                 )}
               </div>
 
+              {/* Disponibilità reperibilità */}
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.onCallAvailable}
+                    onChange={(e) => setForm({ ...form, onCallAvailable: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">Disponibile alla reperibilità</span>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Se disabilitato, il dipendente non sarà incluso nella rotazione automatica
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               {/* Buttons */}
               <div className="md:col-span-2 flex gap-3 pt-2">
                 <button
@@ -340,109 +407,113 @@ export default function UsersPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Dipendente
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Ruolo
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Team
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Anzianità
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Stato
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Azioni
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dipendente</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ruolo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anzianità</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stato</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Azioni</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
-                    {users.map((user) => (
-                      <tr key={user.id} className={`hover:bg-gray-50 ${!user.is_active ? 'opacity-50' : ''}`}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${avatarColor(user.role)}`}
-                            >
-                              {getInitials(user.full_name)}
+                    {users.map((user) => {
+                      const rstStatus = resetStatus[user.id] ?? 'idle';
+                      return (
+                        <tr key={user.id} className={`hover:bg-gray-50 ${!user.is_active ? 'opacity-50' : ''}`}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${avatarColor(user.role)}`}
+                              >
+                                {getInitials(user.full_name)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{user.full_name}</p>
+                                <p className="text-xs text-gray-500">{user.email}</p>
+                                {user.on_call_available === false && (
+                                  <span className="text-[10px] text-amber-600 font-medium">Non in rotazione</span>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">{user.full_name}</p>
-                              <p className="text-xs text-gray-500">{user.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              user.role === 'admin'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {user.role === 'admin' ? 'Amministratore' : 'Utente'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {(user.team_ids ?? []).length === 0 ? (
-                              <span className="text-sm text-gray-400">—</span>
-                            ) : (
-                              (user.team_ids ?? []).map((tid) => {
-                                const t = teams.find((x) => x.id === tid);
-                                return (
-                                  <span
-                                    key={tid}
-                                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-white"
-                                    style={{ backgroundColor: t?.color ?? '#6366f1' }}
-                                  >
-                                    {t?.name ?? tid.slice(0, 6)}
-                                  </span>
-                                );
-                              })
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {formatSeniority(user.seniority_date)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              user.is_active
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {user.is_active ? 'Attivo' : 'Disattivo'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => openEditForm(user)}
-                              className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                            >
-                              Modifica
-                            </button>
-                            <button
-                              onClick={() => handleDeactivate(user)}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                                user.is_active
-                                  ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100'
-                                  : 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100'
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                user.role === 'admin' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'
                               }`}
                             >
-                              {user.is_active ? 'Disattiva' : 'Riattiva'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                              {user.role === 'admin' ? 'Amministratore' : 'Utente'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {(user.team_ids ?? []).length === 0 ? (
+                                <span className="text-sm text-gray-400">—</span>
+                              ) : (
+                                (user.team_ids ?? []).map((tid) => {
+                                  const t = teams.find((x) => x.id === tid);
+                                  return (
+                                    <span
+                                      key={tid}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                                      style={{ backgroundColor: t?.color ?? '#6366f1' }}
+                                    >
+                                      {t?.name ?? tid.slice(0, 6)}
+                                    </span>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {formatSeniority(user.seniority_date)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'
+                              }`}
+                            >
+                              {user.is_active ? 'Attivo' : 'Disattivo'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => openEditForm(user)}
+                                className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                              >
+                                Modifica
+                              </button>
+                              <button
+                                onClick={() => handleResetPassword(user)}
+                                disabled={rstStatus === 'sending'}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                                  rstStatus === 'sent'
+                                    ? 'text-green-700 bg-green-50 border-green-200'
+                                    : rstStatus === 'error'
+                                    ? 'text-red-700 bg-red-50 border-red-200'
+                                    : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
+                                }`}
+                                title="Invia email di reset password all'utente"
+                              >
+                                {rstStatus === 'sending' ? '...' : rstStatus === 'sent' ? '✓ Inviata' : 'Reset pwd'}
+                              </button>
+                              <button
+                                onClick={() => handleDeactivate(user)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                                  user.is_active
+                                    ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100'
+                                    : 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100'
+                                }`}
+                              >
+                                {user.is_active ? 'Disattiva' : 'Riattiva'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

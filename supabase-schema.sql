@@ -11,6 +11,8 @@ CREATE TABLE users (
   seniority_date DATE NOT NULL, -- for seniority calculation
   team_id UUID,
   is_active BOOLEAN DEFAULT true,
+  renounce_smart BOOLEAN DEFAULT false, -- true = dipendente rinuncia volontariamente ai giorni smart
+  on_call_available BOOLEAN DEFAULT true, -- true = disponibile alla reperibilità
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -38,11 +40,14 @@ ALTER TABLE users ADD CONSTRAINT fk_users_team
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE SET NULL;
 
 -- SHIFTS TABLE (individual day assignments)
+-- shift_type = work location (office/smartwork)
+-- leave_type = optional leave overlay (sick/vacation/permission) — coexists with shift_type
 CREATE TABLE shifts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL,
   shift_date DATE NOT NULL,
-  shift_type VARCHAR(20) NOT NULL CHECK (shift_type IN ('office', 'smartwork', 'sick', 'vacation', 'permission')),
+  shift_type VARCHAR(20) NOT NULL CHECK (shift_type IN ('office', 'smartwork')),
+  leave_type VARCHAR(20) CHECK (leave_type IS NULL OR leave_type IN ('sick', 'vacation', 'permission')),
   locked BOOLEAN DEFAULT false, -- cannot be changed if true
   locked_by UUID, -- admin who locked it
   created_at TIMESTAMP DEFAULT NOW(),

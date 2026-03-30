@@ -60,15 +60,20 @@ export default function AdminOnCallPage() {
   };
 
   const handleGenerate = async () => {
-    if (users.length === 0) return;
+    // Only include users available for on-call rotation
+    const availableUsers = users.filter((u) => u.on_call_available !== false);
+    if (availableUsers.length === 0) {
+      setError('Nessun dipendente disponibile alla reperibilità. Abilita almeno un dipendente nella gestione utenti.');
+      return;
+    }
     try {
       setGenerating(true);
       setError(null);
       await api.post('/api/on-call', {
-        action: 'generate',
+        generate: true,   // must match the API check (body.generate)
         year,
         month,
-        userIds: users.map((u) => u.id),
+        userIds: availableUsers.map((u) => u.id),
       });
       await loadData();
     } catch (err: unknown) {
@@ -145,13 +150,20 @@ export default function AdminOnCallPage() {
             <h1 className="text-3xl font-bold text-gray-900">Gestione Reperibilità</h1>
             <p className="text-gray-600 mt-2">Assegna e gestisci i turni di reperibilità settimanali</p>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={generating || users.length === 0}
-            className="bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {generating ? 'Generazione...' : 'Genera Rotazione'}
-          </button>
+          <div className="flex items-center gap-3">
+            {users.filter((u) => u.on_call_available !== false).length < users.length && (
+              <span className="text-xs text-gray-500">
+                {users.filter((u) => u.on_call_available !== false).length}/{users.length} in rotazione
+              </span>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={generating || users.filter((u) => u.on_call_available !== false).length === 0}
+              className="bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generating ? 'Generazione...' : 'Genera Rotazione'}
+            </button>
+          </div>
         </div>
 
         {/* Month navigation */}

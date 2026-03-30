@@ -1,7 +1,8 @@
 // User types
 export type UserRole = 'admin' | 'user';
 
-export type ShiftType = 'office' | 'smartwork' | 'sick' | 'vacation' | 'permission';
+export type ShiftType = 'office' | 'smartwork';
+export type LeaveType = 'sick' | 'vacation' | 'permission';
 
 export interface User {
   id: string;
@@ -12,6 +13,8 @@ export interface User {
   team_id: string | null; // legacy single-team field, kept for DB compat
   team_ids: string[];     // populated from user_teams join table
   is_active: boolean;
+  renounce_smart: boolean;    // true = rinuncia volontaria ai giorni smart (escluso dall'equità)
+  on_call_available: boolean; // true = disponibile alla reperibilità
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +34,7 @@ export interface Shift {
   user_id: string;
   shift_date: string; // YYYY-MM-DD
   shift_type: ShiftType;
+  leave_type: LeaveType | null; // overlay: sick/vacation/permission coexists with shift_type
   locked: boolean;
   locked_by: string | null;
   created_at: string;
@@ -120,8 +124,9 @@ export interface ShiftStats {
   totalUsers: number;
   officeToday: number;
   smartworkToday: number;
+  onCallToday: string | null;
+  // Leave overlays
   sickToday: number;
   vacationToday: number;
   permissionToday: number;
-  onCallToday: string | null;
 }

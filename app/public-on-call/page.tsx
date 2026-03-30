@@ -2,19 +2,20 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/fetcher';
-import { formatDate, getInitials, getWeekStart } from '@/lib/utils';
-import { ShiftWithUser } from '@/types';
+import { formatDate, getInitials } from '@/lib/utils';
+import { ShiftWithUser, Team } from '@/types';
 
 interface OnCallEntry {
   id: string;
   week_start_date: string;
   week_end_date: string;
-  user: { id: string; full_name: string; email: string } | null;
+  user: { id: string; full_name: string; email: string; team_id?: string | null } | null;
 }
 
 interface TeamGroup {
   teamName: string;
   teamId: string | null;
+  teamColor: string | null;
   users: Array<{ id: string; full_name: string }>;
 }
 
@@ -22,6 +23,7 @@ export default function PublicOnCallPage() {
   const [onCallUsers, setOnCallUsers] = useState<OnCallEntry[]>([]);
   const [officeTeams, setOfficeTeams] = useState<TeamGroup[]>([]);
   const [officeTotal, setOfficeTotal] = useState(0);
+  const [teamMap, setTeamMap] = useState<Record<string, Team>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +39,15 @@ export default function PublicOnCallPage() {
       setLoading(true);
 
       // Both requests go through our API routes → server-side logging on Vercel
-      const [onCallData, shiftsData] = await Promise.all([
+      const [onCallData, shiftsData, teamsData] = await Promise.all([
         api.get<OnCallEntry[]>(`/api/on-call?date=${todayStr}`),
         api.get<ShiftWithUser[]>(`/api/shifts?date=${todayStr}`),
+        api.get<Team[]>('/api/teams'),
       ]);
+
+      const tMap: Record<string, Team> = {};
+      teamsData.forEach((t) => { tMap[t.id] = t; });
+      setTeamMap(tMap);
 
       setOnCallUsers(onCallData);
 
@@ -48,30 +55,17 @@ export default function PublicOnCallPage() {
       const officeShifts = shiftsData.filter((s) => s.shift_type === 'office' && s.user);
       setOfficeTotal(officeShifts.length);
 
-      // Get unique team IDs for name resolution
-      const teamIds = [...new Set(officeShifts.map((s) => s.user?.team_id).filter(Boolean))] as string[];
-
-      // Fetch team names if we have teams
-      let teamMap: Record<string, string> = {};
-      if (teamIds.length > 0) {
-        try {
-          // We don't have a dedicated teams endpoint yet, so we'll use the team_id
-          // In production you'd have /api/teams – for now group by ID
-          // This could be improved with a dedicated teams API route
-        } catch {
-          // Non-blocking
-        }
-      }
-
-      // Group by team_id
+      // Group by team_id, using real team name and color
       const grouped: Record<string, TeamGroup> = {};
       for (const shift of officeShifts) {
         const u = shift.user!;
         const key = u.team_id ?? '__no_team__';
         if (!grouped[key]) {
+          const team = u.team_id ? tMap[u.team_id] : null;
           grouped[key] = {
             teamId: u.team_id ?? null,
-            teamName: u.team_id ? `Team ${u.team_id.slice(0, 6)}` : 'Senza team',
+            teamName: team?.name ?? (u.team_id ? `Team ${u.team_id.slice(0, 6)}` : 'Senza team'),
+            teamColor: team?.color ?? null,
             users: [],
           };
         }
@@ -188,7 +182,10 @@ export default function PublicOnCallPage() {
                   <ul className="divide-y divide-gray-100">
                     {group.users.map((u) => (
                       <li key={u.id} className="px-5 py-3 flex items-center gap-3">
-                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                        <div
+                          className="flex-shrink-0 w-9 h-9 rounded-full text-white flex items-center justify-center font-bold text-xs"
+                          style={{ backgroundColor: group.teamColor ?? '#2563eb' }}
+                        >
                           {getInitials(u.full_name)}
                         </div>
                         <span className="text-gray-900 text-sm font-medium truncate">{u.full_name}</span>

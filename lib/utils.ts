@@ -75,14 +75,11 @@ export const getSeniorityDays = (seniorityDate: string): number => {
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 };
 
-// Shift utilities
+// Shift utilities (work location)
 export const getShiftColor = (shiftType: string): string => {
   const colors: Record<string, string> = {
     office: 'bg-blue-100 text-blue-800',
     smartwork: 'bg-green-100 text-green-800',
-    sick: 'bg-red-100 text-red-800',
-    vacation: 'bg-yellow-100 text-yellow-800',
-    permission: 'bg-purple-100 text-purple-800',
   };
   return colors[shiftType] || 'bg-gray-100 text-gray-800';
 };
@@ -91,9 +88,34 @@ export const getShiftLabel = (shiftType: string): string => {
   const labels: Record<string, string> = {
     office: 'Ufficio',
     smartwork: 'Smart',
-    sick: 'Malato',
+  };
+  return labels[shiftType] || shiftType;
+};
+
+// Leave utilities (overlay on top of shift)
+export const getLeaveColor = (leaveType: string): string => {
+  const colors: Record<string, string> = {
+    sick: 'bg-red-100 text-red-800',
+    vacation: 'bg-yellow-100 text-yellow-800',
+    permission: 'bg-purple-100 text-purple-800',
+  };
+  return colors[leaveType] || 'bg-gray-100 text-gray-800';
+};
+
+export const getLeaveLabel = (leaveType: string): string => {
+  const labels: Record<string, string> = {
+    sick: 'Malattia',
     vacation: 'Ferie',
     permission: 'Permesso',
   };
-  return labels[shiftType] || shiftType;
+  return labels[leaveType] || leaveType;
+};
+
+export const getLeaveIcon = (leaveType: string): string => {
+  const icons: Record<string, string> = {
+    sick: '🤒',
+    vacation: '✈️',
+    permission: '📋',
+  };
+  return icons[leaveType] || '?';
 };

@@ -6,7 +6,7 @@ import Calendar from '@/components/Calendar';
 import DraggableUserList from '@/components/DraggableUserList';
 import DayShiftPanel from '@/components/DayShiftPanel';
 import { api } from '@/lib/fetcher';
-import { ShiftWithUser, User, Team, ShiftPreference, PreferenceType } from '@/types';
+import { ShiftWithUser, User, Team, ShiftPreference, PreferenceType, LeaveType } from '@/types';
 import type { SwapCell } from '@/components/Calendar';
 
 export default function SchedulePage() {
@@ -69,6 +69,11 @@ export default function SchedulePage() {
 
   const handleShiftChange = async (userId: string, shiftDate: string, newType: 'office' | 'smartwork') => {
     await api.post('/api/shifts', { userId, shiftDate, shiftType: newType });
+    await loadData();
+  };
+
+  const handleLeaveChange = async (userId: string, shiftDate: string, leaveType: LeaveType | null) => {
+    await api.patch('/api/shifts', { userId, shiftDate, action: 'setLeave', leaveType });
     await loadData();
   };
 
@@ -171,11 +176,12 @@ export default function SchedulePage() {
         </div>
 
         {/* Preferences summary */}
-        {preferences.length > 0 && (
+        {(preferences.length > 0 || users.some((u) => u.renounce_smart)) && (
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700">
-                Preferenze dipendenti ({preferences.length} espresse)
+                Preferenze dipendenti
+                {preferences.length > 0 && <span className="font-normal text-gray-500"> ({preferences.length} espresse)</span>}
               </h3>
               <button
                 onClick={() => setShowPreferences(!showPreferences)}
@@ -185,6 +191,8 @@ export default function SchedulePage() {
               </button>
             </div>
             {showPreferences && (() => {
+              const renouncingUsers = users.filter((u) => u.renounce_smart);
+
               // Build summary: per user, count home/office prefs
               const userPrefSummary = new Map<string, { home: number; office: number }>();
               preferences.forEach((p) => {
@@ -196,21 +204,37 @@ export default function SchedulePage() {
               });
 
               return (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {[...userPrefSummary.entries()].map(([uid, counts]) => {
-                    const user = users.find((u) => u.id === uid);
-                    return (
-                      <div key={uid} className="text-xs bg-gray-50 rounded px-2 py-1.5">
-                        <span className="font-medium text-gray-800">
-                          {user?.full_name ?? uid.slice(0, 8)}
-                        </span>
-                        <div className="flex gap-2 mt-0.5 text-gray-500">
-                          {counts.office > 0 && <span>🏢 {counts.office}g</span>}
-                          {counts.home > 0 && <span>🏠 {counts.home}g</span>}
-                        </div>
+                <div className="space-y-3">
+                  {renouncingUsers.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1.5">Rinuncia smart (esclusi dall&apos;equità, priorità ufficio)</p>
+                      <div className="flex flex-wrap gap-2">
+                        {renouncingUsers.map((u) => (
+                          <span key={u.id} className="text-xs bg-orange-50 text-orange-700 border border-orange-200 rounded px-2 py-1 font-medium">
+                            🏢 {u.full_name}
+                          </span>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
+                  {userPrefSummary.size > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {[...userPrefSummary.entries()].map(([uid, counts]) => {
+                        const user = users.find((u) => u.id === uid);
+                        return (
+                          <div key={uid} className="text-xs bg-gray-50 rounded px-2 py-1.5">
+                            <span className="font-medium text-gray-800">
+                              {user?.full_name ?? uid.slice(0, 8)}
+                            </span>
+                            <div className="flex gap-2 mt-0.5 text-gray-500">
+                              {counts.office > 0 && <span>🏢 {counts.office}g</span>}
+                              {counts.home > 0 && <span>🏠 {counts.home}g</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -259,6 +283,7 @@ export default function SchedulePage() {
         isHoliday={selectedDate ? holidays.includes(selectedDate) : false}
         onClose={() => setSelectedDate(null)}
         onShiftChange={handleShiftChange}
+        onLeaveChange={handleLeaveChange}
         onToggleHoliday={handleToggleHoliday}
       />
     </Layout>

@@ -9,6 +9,8 @@ function mapUser(raw: any): User {
   return {
     ...raw,
     team_ids: (raw.user_teams ?? []).map((ut: { team_id: string }) => ut.team_id),
+    renounce_smart: raw.renounce_smart ?? false,
+    on_call_available: raw.on_call_available ?? true,
   };
 }
 

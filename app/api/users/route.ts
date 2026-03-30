@@ -54,7 +54,7 @@ export const POST = withHandler('api/users', 'POST', async (req) => {
  * PATCH /api/users  { id, fullName?, email?, role?, seniorityDate?, teamId?, isActive? }
  */
 export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
-  const { id, fullName, email, role, seniorityDate, isActive, teamIds } = await parseBody(req);
+  const { id, fullName, email, role, seniorityDate, isActive, teamIds, onCallAvailable } = await parseBody(req);
   if (!id) return jsonOk({ error: 'Parametro id mancante' }, 400);
 
   const updates: Record<string, unknown> = {};
@@ -64,6 +64,7 @@ export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
   if (seniorityDate !== undefined) updates.seniority_date = seniorityDate;
   if (isActive !== undefined) updates.is_active = isActive;
   if (Array.isArray(teamIds)) updates.team_ids = teamIds;
+  if (onCallAvailable !== undefined) updates.on_call_available = onCallAvailable;
 
   const user = await usersAPI.updateUser(id, updates as any);
   return jsonOk(user);

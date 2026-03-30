@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShiftWithUser, User } from '@/types';
-import { getInitials, parseDateString } from '@/lib/utils';
+import { ShiftWithUser, User, LeaveType } from '@/types';
+import { getInitials, parseDateString, getLeaveLabel, getLeaveIcon } from '@/lib/utils';
 
 interface DayShiftPanelProps {
   date: string | null;
@@ -12,6 +12,7 @@ interface DayShiftPanelProps {
   isHoliday?: boolean;
   onClose: () => void;
   onShiftChange: (userId: string, date: string, newType: 'office' | 'smartwork') => Promise<void>;
+  onLeaveChange?: (userId: string, date: string, leaveType: LeaveType | null) => Promise<void>;
   onToggleHoliday?: (date: string) => Promise<void>;
 }
 
@@ -26,6 +27,12 @@ function formatItalianDate(dateStr: string): string {
   return `${ITALIAN_DAYS[d.getDay()]} ${d.getDate()} ${ITALIAN_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+const LEAVE_OPTIONS: Array<{ value: LeaveType; label: string; icon: string }> = [
+  { value: 'sick', label: 'Malattia', icon: '🤒' },
+  { value: 'vacation', label: 'Ferie', icon: '✈️' },
+  { value: 'permission', label: 'Permesso', icon: '📋' },
+];
+
 export default function DayShiftPanel({
   date,
   shifts,
@@ -34,6 +41,7 @@ export default function DayShiftPanel({
   isHoliday = false,
   onClose,
   onShiftChange,
+  onLeaveChange,
   onToggleHoliday,
 }: DayShiftPanelProps) {
   const [loadingUsers, setLoadingUsers] = useState<Set<string>>(new Set());
@@ -45,9 +53,7 @@ export default function DayShiftPanel({
 
   const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
   const smartShifts = dayShifts.filter((s) => s.shift_type === 'smartwork');
-  const otherShifts = dayShifts.filter(
-    (s) => s.shift_type !== 'office' && s.shift_type !== 'smartwork',
-  );
+  const onLeaveShifts = dayShifts.filter((s) => s.leave_type != null);
 
   const assignedUserIds = new Set(dayShifts.map((s) => s.user_id));
   const unassignedUsers = users.filter((u) => u.is_active && !assignedUserIds.has(u.id));
@@ -60,11 +66,19 @@ export default function DayShiftPanel({
     return shift.user ?? users.find((u) => u.id === shift.user_id);
   };
 
-  const shiftTypeLabel: Record<string, string> = {
-    sick: 'Malato',
-    vacation: 'Ferie',
-    permission: 'Permesso',
-  };
+  async function handleLeaveChange(userId: string, leaveType: LeaveType | null) {
+    if (!onLeaveChange || !date) return;
+    setLoadingUsers((prev) => new Set(prev).add(userId));
+    try {
+      await onLeaveChange(userId, date, leaveType);
+    } finally {
+      setLoadingUsers((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
+    }
+  }
 
   async function handleHolidayToggle() {
     if (!onToggleHoliday || !date) return;
@@ -92,6 +106,52 @@ export default function DayShiftPanel({
   const Spinner = () => (
     <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
   );
+
+  const LeaveBadge = ({ shift }: { shift: ShiftWithUser }) => {
+    if (!shift.leave_type) return null;
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+        style={{
+          backgroundColor: shift.leave_type === 'sick' ? '#fee2e2' : shift.leave_type === 'vacation' ? '#fef9c3' : '#f3e8ff',
+          color: shift.leave_type === 'sick' ? '#991b1b' : shift.leave_type === 'vacation' ? '#713f12' : '#6b21a8',
+        }}
+      >
+        {getLeaveIcon(shift.leave_type)} {getLeaveLabel(shift.leave_type)}
+      </span>
+    );
+  };
+
+  const LeaveDropdown = ({ shift }: { shift: ShiftWithUser }) => {
+    if (!onLeaveChange) return null;
+    const isLoading = loadingUsers.has(shift.user_id);
+    return (
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {shift.leave_type ? (
+          <button
+            onClick={() => handleLeaveChange(shift.user_id, null)}
+            disabled={isLoading}
+            className="px-1.5 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 disabled:opacity-40 transition-colors"
+            title="Rimuovi assenza"
+          >
+            {isLoading ? <Spinner /> : '✕'}
+          </button>
+        ) : (
+          LEAVE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => handleLeaveChange(shift.user_id, opt.value)}
+              disabled={isLoading}
+              className="px-1 py-0.5 text-[10px] rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+              title={opt.label}
+            >
+              {opt.icon}
+            </button>
+          ))
+        )}
+      </div>
+    );
+  };
 
   const LockIcon = () => (
     <svg
@@ -195,15 +255,19 @@ export default function DayShiftPanel({
                   return (
                     <li
                       key={shift.id}
-                      className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50"
+                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50"
                     >
                       <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                         {user ? getInitials(user.full_name) : '?'}
                       </div>
-                      <span className="flex-1 text-sm text-gray-800 truncate">
-                        {user?.full_name ?? shift.user_id}
-                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-800 truncate block">
+                          {user?.full_name ?? shift.user_id}
+                        </span>
+                        {shift.leave_type && <LeaveBadge shift={shift} />}
+                      </div>
                       {shift.locked && <LockIcon />}
+                      <LeaveDropdown shift={shift} />
                       <button
                         onClick={() => handleChange(shift.user_id, 'smartwork')}
                         disabled={shift.locked || isLoading}
@@ -234,15 +298,19 @@ export default function DayShiftPanel({
                   return (
                     <li
                       key={shift.id}
-                      className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50"
+                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50"
                     >
                       <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                         {user ? getInitials(user.full_name) : '?'}
                       </div>
-                      <span className="flex-1 text-sm text-gray-800 truncate">
-                        {user?.full_name ?? shift.user_id}
-                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-800 truncate block">
+                          {user?.full_name ?? shift.user_id}
+                        </span>
+                        {shift.leave_type && <LeaveBadge shift={shift} />}
+                      </div>
                       {shift.locked && <LockIcon />}
+                      <LeaveDropdown shift={shift} />
                       <button
                         onClick={() => handleChange(shift.user_id, 'office')}
                         disabled={officeDisabled}
@@ -258,19 +326,19 @@ export default function DayShiftPanel({
             )}
           </section>
 
-          {/* Altro */}
-          {otherShifts.length > 0 && (
+          {/* In Assenza */}
+          {onLeaveShifts.length > 0 && (
             <section>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Altro ({otherShifts.length})
+                In Assenza ({onLeaveShifts.length})
               </h3>
               <ul className="space-y-1.5">
-                {otherShifts.map((shift) => {
+                {onLeaveShifts.map((shift) => {
                   const user = getUserForShift(shift);
                   return (
                     <li
-                      key={shift.id}
-                      className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50"
+                      key={`leave-${shift.id}`}
+                      className="flex items-center gap-2.5 p-2 rounded-lg bg-gray-50"
                     >
                       <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                         {user ? getInitials(user.full_name) : '?'}
@@ -278,8 +346,9 @@ export default function DayShiftPanel({
                       <span className="flex-1 text-sm text-gray-800 truncate">
                         {user?.full_name ?? shift.user_id}
                       </span>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full flex-shrink-0">
-                        {shiftTypeLabel[shift.shift_type] ?? shift.shift_type}
+                      <LeaveBadge shift={shift} />
+                      <span className="text-[10px] text-gray-400">
+                        ({shift.shift_type === 'office' ? 'Ufficio' : 'Smart'})
                       </span>
                     </li>
                   );

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { ShiftWithUser, Team, User } from '@/types';
-import { getMonthDays, getInitials, getShiftColor } from '@/lib/utils';
+import { getMonthDays, getInitials, getShiftColor, getLeaveLabel, getLeaveIcon } from '@/lib/utils';
 
 export interface SwapCell {
   userId: string;
@@ -53,7 +53,10 @@ const MATRIX_LABELS: Record<MatrixType, string> = {
 const SHIFT_LABELS: Record<string, string> = {
   office: 'Ufficio',
   smartwork: 'Smart',
-  sick: 'Malato',
+};
+
+const LEAVE_LABELS: Record<string, string> = {
+  sick: 'Malattia',
   vacation: 'Ferie',
   permission: 'Perm.',
 };
@@ -61,17 +64,29 @@ const SHIFT_LABELS: Record<string, string> = {
 const SHIFT_BG: Record<string, string> = {
   office: '#dbeafe',
   smartwork: '#dcfce7',
-  sick: '#fee2e2',
-  vacation: '#fef9c3',
-  permission: '#f3f4f6',
 };
 
 const SHIFT_TEXT: Record<string, string> = {
   office: '#1e40af',
   smartwork: '#166534',
+};
+
+const LEAVE_BG: Record<string, string> = {
+  sick: '#fee2e2',
+  vacation: '#fef9c3',
+  permission: '#f3e8ff',
+};
+
+const LEAVE_TEXT: Record<string, string> = {
   sick: '#991b1b',
   vacation: '#713f12',
-  permission: '#374151',
+  permission: '#6b21a8',
+};
+
+const LEAVE_ICONS: Record<string, string> = {
+  sick: '🤒',
+  vacation: '✈️',
+  permission: '📋',
 };
 
 const TOTAL_BG: Record<MatrixType, string> = {
@@ -105,15 +120,6 @@ export default function Calendar({
   const [swapping, setSwapping] = useState(false);
   const [dayShifts, setDayShifts] = useState<Record<string, ShiftWithUser[]>>({});
 
-  useEffect(() => {
-    const grouped: Record<string, ShiftWithUser[]> = {};
-    shifts.forEach((shift) => {
-      if (!grouped[shift.shift_date]) grouped[shift.shift_date] = [];
-      grouped[shift.shift_date].push(shift);
-    });
-    setDayShifts(grouped);
-  }, [shifts]);
-
   // Exit swap mode when leaving matrix view
   useEffect(() => {
     if (viewMode !== 'matrix') {
@@ -140,6 +146,21 @@ export default function Calendar({
     return s;
   }, [days, effectiveWorkDays, holidaySet]);
 
+  // Pre-filter shifts to working days only — ensures holidays never appear in counts or display
+  const workingShifts = useMemo(
+    () => shifts.filter((s) => !nonWorkingSet.has(s.shift_date)),
+    [shifts, nonWorkingSet],
+  );
+
+  useEffect(() => {
+    const grouped: Record<string, ShiftWithUser[]> = {};
+    workingShifts.forEach((shift) => {
+      if (!grouped[shift.shift_date]) grouped[shift.shift_date] = [];
+      grouped[shift.shift_date].push(shift);
+    });
+    setDayShifts(grouped);
+  }, [workingShifts]);
+
   const teamColorMap = useMemo(() => {
     const map = new Map<string, string>();
     teams.forEach((t) => map.set(t.id, t.color));
@@ -163,12 +184,12 @@ export default function Calendar({
 
   const shiftLookup = useMemo(() => {
     const map = new Map<string, Map<string, ShiftWithUser>>();
-    shifts.forEach((s) => {
+    workingShifts.forEach((s) => {
       if (!map.has(s.shift_date)) map.set(s.shift_date, new Map());
       map.get(s.shift_date)!.set(s.user_id, s);
     });
     return map;
-  }, [shifts]);
+  }, [workingShifts]);
 
   const dateTotals = useMemo(() => {
     const map = new Map<string, Record<MatrixType, number>>();
@@ -189,24 +210,24 @@ export default function Calendar({
     const map = new Map<string, Record<MatrixType, number>>();
     matrixUsers.forEach((u) => {
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
-      shifts.forEach((s) => {
-        // Exclude non-working days from personal totals
-        if (s.user_id === u.id && s.shift_type in totals && !nonWorkingSet.has(s.shift_date)) {
+      // workingShifts already excludes non-working days
+      workingShifts.forEach((s) => {
+        if (s.user_id === u.id && s.shift_type in totals) {
           totals[s.shift_type as MatrixType]++;
         }
       });
       map.set(u.id, totals);
     });
     return map;
-  }, [matrixUsers, shifts, nonWorkingSet]);
+  }, [matrixUsers, workingShifts]);
 
   const grandTotals = useMemo(() => {
     const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
-    shifts.forEach((s) => {
-      if (s.shift_type in totals && !nonWorkingSet.has(s.shift_date)) totals[s.shift_type as MatrixType]++;
+    workingShifts.forEach((s) => {
+      if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
     });
     return totals;
-  }, [shifts, nonWorkingSet]);
+  }, [workingShifts]);
 
   // ── Swap mode handlers ──────────────────────────────────────
   const toggleSwapMode = () => {
@@ -338,6 +359,8 @@ export default function Calendar({
             <tbody>
               {days.map((date) => {
                 const dateStr = localDateStr(date);
+                // Skip non-working days (weekends, holidays, configured non-work days)
+                if (nonWorkingSet.has(dateStr)) return null;
                 const dow = date.getDay();
                 const isWeekend = dow === 0 || dow === 6;
                 const isHoliday = holidaySet.has(dateStr);
@@ -367,6 +390,7 @@ export default function Calendar({
                       const shift = rowShifts?.get(u.id);
                       // On non-working days, never show shift data regardless of DB content
                       const type = (!isNonWorking && shift?.shift_type) ? shift.shift_type : null;
+                      const leave = (!isNonWorking && shift?.leave_type) ? shift.leave_type : null;
                       const selected = isSwapSelected(u.id, dateStr);
                       const clickable = swapMode && onSwapShifts && !swapping && !isNonWorking;
 
@@ -381,21 +405,32 @@ export default function Calendar({
                           {isNonWorking ? (
                             <div className="text-[10px]" style={{ color: '#e5e7eb' }}>—</div>
                           ) : (
-                            <div
-                              className={`rounded px-1 py-0.5 text-[11px] font-medium transition-all ${
-                                selected
-                                  ? 'ring-2 ring-indigo-500 ring-offset-1 scale-105'
-                                  : clickable
-                                  ? 'hover:ring-2 hover:ring-indigo-300 hover:scale-105'
-                                  : ''
-                              }`}
-                              style={
-                                type
-                                  ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
-                                  : { color: '#d1d5db' }
-                              }
-                            >
-                              {type ? SHIFT_LABELS[type] ?? type : '—'}
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div
+                                className={`rounded px-1 py-0.5 text-[11px] font-medium transition-all ${
+                                  selected
+                                    ? 'ring-2 ring-indigo-500 ring-offset-1 scale-105'
+                                    : clickable
+                                    ? 'hover:ring-2 hover:ring-indigo-300 hover:scale-105'
+                                    : ''
+                                }`}
+                                style={
+                                  type
+                                    ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
+                                    : { color: '#d1d5db' }
+                                }
+                              >
+                                {type ? SHIFT_LABELS[type] ?? type : '—'}
+                              </div>
+                              {leave && (
+                                <div
+                                  className="rounded px-1 text-[9px] font-medium"
+                                  style={{ backgroundColor: LEAVE_BG[leave], color: LEAVE_TEXT[leave] }}
+                                  title={LEAVE_LABELS[leave]}
+                                >
+                                  {LEAVE_ICONS[leave]}
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -468,10 +503,13 @@ export default function Calendar({
               <span style={{ color: SHIFT_TEXT[type] }}>{label}</span>
             </div>
           ))}
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded bg-amber-100" />
-            <span className="text-amber-700">Festivo *</span>
-          </div>
+          <span className="text-gray-300">|</span>
+          {Object.entries(LEAVE_ICONS).map(([type, icon]) => (
+            <div key={type} className="flex items-center gap-1">
+              <span>{icon}</span>
+              <span style={{ color: LEAVE_TEXT[type] }}>{LEAVE_LABELS[type]}</span>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -505,14 +543,15 @@ export default function Calendar({
             const isHoliday = holidaySet.has(dateStr);
             const isNonWorkingGrid = nonWorkingSet.has(dateStr);
             // On non-working days, don't render stale DB shifts
+            // dayShifts already excludes non-working day shifts (built from workingShifts)
             const cellShifts = isNonWorkingGrid ? [] : (dayShifts[dateStr] || []);
             const officeCount = cellShifts.filter((s) => s.shift_type === 'office').length;
             const isOverCapacity = officeCount > maxCapacity;
             const isSelected = selectedDate === dateStr;
 
-            let cellBg = 'bg-white';
-            if (isHoliday) cellBg = 'bg-amber-50';
-            else if (isWeekend) cellBg = 'bg-gray-50';
+            // Holidays treated same as weekends — no amber, no label
+            const isNonWorkingDay = isWeekend || isHoliday;
+            const cellBg = isNonWorkingDay ? 'bg-gray-50' : 'bg-white';
 
             return (
               <div
@@ -521,18 +560,15 @@ export default function Calendar({
                 className={[
                   cellBg,
                   'p-1.5 min-h-28 border border-gray-200 transition',
-                  editable ? 'cursor-pointer hover:bg-blue-50' : '',
+                  editable && !isNonWorkingDay ? 'cursor-pointer hover:bg-blue-50' : '',
                   isOverCapacity ? 'ring-2 ring-red-400' : '',
                   isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : '',
                 ].join(' ')}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className={`text-xs font-bold ${isHoliday ? 'text-amber-600' : isWeekend ? 'text-gray-400' : 'text-gray-700'}`}>
+                  <span className={`text-xs font-bold ${isNonWorkingDay ? 'text-gray-400' : 'text-gray-700'}`}>
                     {date.getDate()}
                   </span>
-                  {isHoliday && (
-                    <span className="text-[10px] text-amber-600 font-medium">Festivo</span>
-                  )}
                 </div>
 
                 {officeCount > 0 && (
@@ -555,6 +591,11 @@ export default function Calendar({
                         <span className="font-bold truncate">
                           {shift.user ? getInitials(shift.user.full_name) : '?'}
                         </span>
+                        {shift.leave_type && (
+                          <span title={getLeaveLabel(shift.leave_type)} className="flex-shrink-0">
+                            {getLeaveIcon(shift.leave_type)}
+                          </span>
+                        )}
                         {shift.locked && <span title="Bloccato">🔒</span>}
                       </div>
                     );
@@ -571,7 +612,7 @@ export default function Calendar({
 
       {/* Legend */}
       <div className="px-6 pb-4 pt-2 bg-gray-50 rounded-b-lg flex flex-wrap gap-4 text-xs">
-        {[['office', 'Ufficio'], ['smartwork', 'Smart'], ['vacation', 'Ferie'], ['permission', 'Permesso'], ['sick', 'Malato']].map(
+        {[['office', 'Ufficio'], ['smartwork', 'Smart']].map(
           ([type, label]) => (
             <div key={type} className="flex items-center gap-1.5">
               <div className={`w-3 h-3 rounded ${getShiftColor(type).split(' ')[0]}`} />
@@ -579,10 +620,13 @@ export default function Calendar({
             </div>
           ),
         )}
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-amber-100" />
-          <span className="text-amber-700">Festivo</span>
-        </div>
+        <span className="text-gray-300">|</span>
+        {Object.entries(LEAVE_ICONS).map(([type, icon]) => (
+          <div key={type} className="flex items-center gap-1">
+            <span>{icon}</span>
+            <span style={{ color: LEAVE_TEXT[type] }}>{LEAVE_LABELS[type]}</span>
+          </div>
+        ))}
         {teams.length > 0 && (
           <>
             <span className="text-gray-300">|</span>
