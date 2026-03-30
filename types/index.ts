@@ -61,6 +61,18 @@ export interface ShiftSwapRequest {
   updated_at: string;
 }
 
+export type PreferenceType = 'indifferent' | 'home' | 'office';
+
+export interface ShiftPreference {
+  id: string;
+  user_id: string;
+  preference_date: string; // YYYY-MM-DD
+  preference: PreferenceType;
+  month_year: string; // YYYY-MM
+  created_at: string;
+  updated_at: string;
+}
+
 export interface GoogleCalendarSync {
   id: string;
   user_id: string;

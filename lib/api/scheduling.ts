@@ -1,8 +1,9 @@
 import { shiftsAPI } from './shifts';
 import { usersAPI } from './users';
 import { settingsAPI } from './settings';
+import { preferencesAPI } from './preferences';
 import { getMonthDays, getSeniorityDays, formatDate } from '../utils';
-import { User, Shift, ShiftType } from '@/types';
+import { User, Shift, ShiftType, PreferenceType } from '@/types';
 import { createLogger, toAppError } from '../logger';
 
 const log = createLogger('schedulingAPI');
@@ -60,6 +61,14 @@ export const schedulingAPI = {
       // Running smart-day counter per user — drives fairness across the month
       const userSmartDays = new Map<string, number>();
       sortedUsers.forEach((u) => userSmartDays.set(u.id, 0));
+
+      // Load user preferences for this month
+      const monthYearStr = `${year}-${String(month).padStart(2, '0')}`;
+      const allPreferences = await preferencesAPI.getAllMonthPreferences(monthYearStr);
+      // Build preference map: `userId:date` → preference
+      const prefMap = new Map<string, PreferenceType>();
+      allPreferences.forEach((p) => prefMap.set(`${p.user_id}:${p.preference_date}`, p.preference));
+      log.info('generateMonthlySchedule', `Caricate ${allPreferences.length} preferenze utente`);
 
       const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const monthDays = getMonthDays(year, month - 1); // getMonthDays expects 0-based month
@@ -124,28 +133,76 @@ export const schedulingAPI = {
           if (lockedMap.has(lockKey) && lockedMap.get(lockKey) === 'office') officeCount++;
         });
 
-        // 3. Build ordered list:
-        //    - Meeting users: strict seniority (rule-based priority)
-        //    - Everyone else: most accumulated smartwork days first (fairness),
-        //      seniority as tiebreaker so the result is deterministic
-        const meetingFirst = sortedUsers.filter((u) => meetingUserIds.has(u.id));
-        const others = [...sortedUsers.filter((u) => !meetingUserIds.has(u.id))].sort((a, b) => {
+        // 3. Build ordered list considering preferences:
+        //    Priority tiers (higher = assigned to office first):
+        //    a) Meeting day users who prefer office (or indifferent)
+        //    b) Non-meeting users who prefer office
+        //    c) Meeting day users who are indifferent
+        //    d) Non-meeting indifferent users (fairness sort: most smart days first, seniority tiebreak)
+        //    e) Users who prefer home (assigned to smartwork unless capacity allows)
+        //
+        //    Within each tier: seniority breaks ties.
+
+        const getPref = (userId: string): PreferenceType =>
+          prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
+
+        // Separate into preference groups
+        const wantsOffice: User[] = [];
+        const indifferentMeeting: User[] = [];
+        const indifferentOther: User[] = [];
+        const wantsHome: User[] = [];
+
+        for (const user of sortedUsers) {
+          if (lockedMap.has(`${user.id}:${dateStr}`)) continue; // handled separately
+          const pref = getPref(user.id);
+          const hasMeeting = meetingUserIds.has(user.id);
+
+          if (pref === 'office') {
+            wantsOffice.push(user);
+          } else if (pref === 'home') {
+            wantsHome.push(user);
+          } else if (hasMeeting) {
+            indifferentMeeting.push(user);
+          } else {
+            indifferentOther.push(user);
+          }
+        }
+
+        // Sort indifferentOther by fairness (most smart days → office priority), seniority tiebreak
+        indifferentOther.sort((a, b) => {
           const diff = (userSmartDays.get(b.id) ?? 0) - (userSmartDays.get(a.id) ?? 0);
-          if (diff !== 0) return diff; // more smart days → office priority
+          if (diff !== 0) return diff;
           return (seniorityIndex.get(a.id) ?? 0) - (seniorityIndex.get(b.id) ?? 0);
         });
-        const ordered = [...meetingFirst, ...others];
 
-        // 4. Assign and track
-        for (const user of ordered) {
+        // When wantsOffice has more people than remaining capacity, seniority decides who gets in
+        // (already sorted by seniority via sortedUsers order)
+
+        // Final order: office-preferring first, then meeting-indifferent, then other-indifferent, then home-preferring
+        const officeFirst = [...wantsOffice, ...indifferentMeeting, ...indifferentOther, ...wantsHome];
+
+        // 4. Handle locked shifts first
+        for (const user of sortedUsers) {
           const lockKey = `${user.id}:${dateStr}`;
-
           if (lockedMap.has(lockKey)) {
             const lockedType = lockedMap.get(lockKey)!;
             newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: lockedType });
             if (lockedType === 'smartwork') {
               userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
             }
+          }
+        }
+
+        // 5. Assign non-locked users respecting preference order
+        for (const user of officeFirst) {
+          const pref = getPref(user.id);
+
+          // If user wants home and there are still office slots → assign smartwork anyway
+          // (unless everyone who wants office is already assigned and capacity remains)
+          if (pref === 'home') {
+            // Honour home preference: assign smartwork
+            newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: 'smartwork' });
+            userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
             continue;
           }
 

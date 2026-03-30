@@ -67,6 +67,22 @@ CREATE TABLE shift_swap_requests (
   FOREIGN KEY (responder_shift_id) REFERENCES shifts(id) ON DELETE CASCADE
 );
 
+-- SHIFT PREFERENCES TABLE (user preferences before schedule generation)
+CREATE TABLE shift_preferences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL,
+  preference_date DATE NOT NULL,
+  preference VARCHAR(20) NOT NULL CHECK (preference IN ('indifferent', 'home', 'office')),
+  month_year VARCHAR(7) NOT NULL, -- 'YYYY-MM' for quick month queries
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, preference_date),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_preferences_user ON shift_preferences(user_id);
+CREATE INDEX idx_preferences_month ON shift_preferences(month_year);
+
 -- ON-CALL ASSIGNMENTS TABLE
 CREATE TABLE on_call_assignments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -125,4 +141,5 @@ CREATE INDEX idx_swap_responder ON shift_swap_requests(responder_id);
 INSERT INTO settings (key, value) VALUES
   ('max_office_capacity', '30'),
   ('on_call_count', '1'),
-  ('timezone', 'Europe/Rome');
+  ('timezone', 'Europe/Rome'),
+  ('preference_deadline_day', '20');

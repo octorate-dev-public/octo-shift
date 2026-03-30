@@ -6,7 +6,7 @@ import Calendar from '@/components/Calendar';
 import DraggableUserList from '@/components/DraggableUserList';
 import DayShiftPanel from '@/components/DayShiftPanel';
 import { api } from '@/lib/fetcher';
-import { ShiftWithUser, User, Team } from '@/types';
+import { ShiftWithUser, User, Team, ShiftPreference, PreferenceType } from '@/types';
 import type { SwapCell } from '@/components/Calendar';
 
 export default function SchedulePage() {
@@ -24,6 +24,8 @@ export default function SchedulePage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [draggedUser, setDraggedUser] = useState<User | null>(null);
   const [dragType, setDragType] = useState<'office' | 'smartwork' | null>(null);
+  const [preferences, setPreferences] = useState<ShiftPreference[]>([]);
+  const [showPreferences, setShowPreferences] = useState(true);
 
   useEffect(() => {
     loadData();
@@ -33,16 +35,19 @@ export default function SchedulePage() {
     try {
       setLoading(true);
       const m = month + 1; // API expects 1-based month
-      const [usersData, shiftsData, settingsData, teamsData] = await Promise.all([
+      const monthYear = `${year}-${String(m).padStart(2, '0')}`;
+      const [usersData, shiftsData, settingsData, teamsData, prefsData] = await Promise.all([
         api.get<User[]>('/api/users'),
         api.get<ShiftWithUser[]>(`/api/shifts?year=${year}&month=${m}`),
         api.get<Record<string, string>>('/api/settings'),
         api.get<Team[]>('/api/teams'),
+        api.get<ShiftPreference[]>(`/api/preferences?monthYear=${monthYear}`),
       ]);
 
       setUsers(usersData);
       setShifts(shiftsData);
       setTeams(teamsData);
+      setPreferences(prefsData);
       setMaxCapacity(
         settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30,
       );
@@ -164,6 +169,53 @@ export default function SchedulePage() {
             Mese Successivo →
           </button>
         </div>
+
+        {/* Preferences summary */}
+        {preferences.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Preferenze dipendenti ({preferences.length} espresse)
+              </h3>
+              <button
+                onClick={() => setShowPreferences(!showPreferences)}
+                className="text-xs text-blue-600 hover:text-blue-800"
+              >
+                {showPreferences ? 'Nascondi dettagli' : 'Mostra dettagli'}
+              </button>
+            </div>
+            {showPreferences && (() => {
+              // Build summary: per user, count home/office prefs
+              const userPrefSummary = new Map<string, { home: number; office: number }>();
+              preferences.forEach((p) => {
+                if (p.preference === 'indifferent') return;
+                if (!userPrefSummary.has(p.user_id)) userPrefSummary.set(p.user_id, { home: 0, office: 0 });
+                const entry = userPrefSummary.get(p.user_id)!;
+                if (p.preference === 'home') entry.home++;
+                if (p.preference === 'office') entry.office++;
+              });
+
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {[...userPrefSummary.entries()].map(([uid, counts]) => {
+                    const user = users.find((u) => u.id === uid);
+                    return (
+                      <div key={uid} className="text-xs bg-gray-50 rounded px-2 py-1.5">
+                        <span className="font-medium text-gray-800">
+                          {user?.full_name ?? uid.slice(0, 8)}
+                        </span>
+                        <div className="flex gap-2 mt-0.5 text-gray-500">
+                          {counts.office > 0 && <span>🏢 {counts.office}g</span>}
+                          {counts.home > 0 && <span>🏠 {counts.home}g</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-1">
