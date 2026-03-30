@@ -58,7 +58,7 @@ CREATE TABLE shift_swap_requests (
   responder_id UUID NOT NULL,
   requester_shift_id UUID NOT NULL,
   responder_shift_id UUID NOT NULL,
-  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled')),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled', 'escalated')),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,

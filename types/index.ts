@@ -56,7 +56,7 @@ export interface ShiftSwapRequest {
   responder_id: string;
   requester_shift_id: string;
   responder_shift_id: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'escalated';
   created_at: string;
   updated_at: string;
 }

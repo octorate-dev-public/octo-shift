@@ -23,8 +23,16 @@ export const GET = withHandler('api/swap-requests', 'GET', async (req) => {
   }
 
   if (p.get('pending') === 'true') {
-    const data = await swapRequestsAPI.getPendingRequests();
-    return jsonOk(data);
+    const { supabase } = await import('@/lib/supabase');
+    const { data } = await supabase
+      .from('shift_swap_requests')
+      .select(
+        `*, requester:requester_id(id,full_name,email), responder:responder_id(id,full_name,email), requester_shift:requester_shift_id(shift_date,shift_type), responder_shift:responder_shift_id(shift_date,shift_type)`,
+      )
+      .in('status', ['pending', 'escalated'])
+      .order('created_at', { ascending: false });
+
+    return jsonOk(data ?? []);
   }
 
   return jsonOk({ error: 'Parametri mancanti: usa userId o pending=true' }, 400);
@@ -65,5 +73,10 @@ export const PATCH = withHandler('api/swap-requests', 'PATCH', async (req) => {
     return jsonOk(data);
   }
 
-  return jsonOk({ error: 'Azione non riconosciuta: usa accept, reject o cancel' }, 400);
+  if (action === 'admin_reject') {
+    const data = await swapRequestsAPI.adminRejectSwapRequest(id);
+    return jsonOk(data);
+  }
+
+  return jsonOk({ error: 'Azione non riconosciuta: usa accept, reject, cancel o admin_reject' }, 400);
 });

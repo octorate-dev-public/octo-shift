@@ -8,13 +8,18 @@ import { getInitials, getShiftColor, getShiftLabel, parseDateString } from '@/li
 
 interface SwapRequestWithDetails {
   id: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'escalated';
   created_at: string;
   requester: { id: string; full_name: string; email: string } | null;
   responder: { id: string; full_name: string; email: string } | null;
   requester_shift: { shift_date: string; shift_type: string } | null;
   responder_shift: { shift_date: string; shift_type: string } | null;
 }
+
+const STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  pending: { label: 'In attesa', className: 'bg-yellow-100 text-yellow-800' },
+  escalated: { label: 'Escalata', className: 'bg-orange-100 text-orange-800' },
+};
 
 export default function AdminSwapsPage() {
   const [requests, setRequests] = useState<SwapRequestWithDetails[]>([]);
@@ -45,7 +50,7 @@ export default function AdminSwapsPage() {
     }
   };
 
-  const handleAction = async (id: string, action: 'accept' | 'reject') => {
+  const handleAction = async (id: string, action: 'accept' | 'reject' | 'admin_reject') => {
     try {
       setProcessingId(id);
       await api.patch('/api/swap-requests', { id, action });
@@ -83,7 +88,7 @@ export default function AdminSwapsPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Richieste di Scambio</h1>
-          <p className="text-gray-600 mt-2">Approva o rifiuta le richieste di cambio turno in attesa</p>
+          <p className="text-gray-600 mt-2">Approva o rifiuta le richieste di cambio turno in attesa o escalate</p>
         </div>
 
         {error && (
@@ -124,6 +129,9 @@ export default function AdminSwapsPage() {
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Richiesta il
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Stato
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Azioni
@@ -195,6 +203,16 @@ export default function AdminSwapsPage() {
                             year: 'numeric',
                           })}
                         </td>
+                        <td className="px-6 py-4">
+                          {(() => {
+                            const info = STATUS_LABELS[req.status] ?? STATUS_LABELS.pending;
+                            return (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${info.className}`}>
+                                {info.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
@@ -202,10 +220,10 @@ export default function AdminSwapsPage() {
                               disabled={isProcessing}
                               className="text-xs bg-green-100 hover:bg-green-200 text-green-700 font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              {isProcessing ? '...' : 'Accetta'}
+                              {isProcessing ? '...' : req.status === 'escalated' ? 'Forza scambio' : 'Accetta'}
                             </button>
                             <button
-                              onClick={() => handleAction(req.id, 'reject')}
+                              onClick={() => handleAction(req.id, req.status === 'escalated' ? 'admin_reject' : 'reject')}
                               disabled={isProcessing}
                               className="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >

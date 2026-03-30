@@ -10,7 +10,7 @@ export const swapRequestsAPI = {
       let query = supabase
         .from('shift_swap_requests')
         .select('*')
-        .eq('status', 'pending')
+        .in('status', ['pending', 'escalated'])
         .order('created_at', { ascending: false });
 
       if (userId) {
@@ -122,8 +122,30 @@ export const swapRequestsAPI = {
     });
   },
 
+  /**
+   * Quando il responder rifiuta, la richiesta viene escalata all'admin
+   * (status → 'escalated') anziché chiusa definitivamente.
+   */
   async rejectSwapRequest(requestId: string): Promise<ShiftSwapRequest> {
     return log.withTiming('rejectSwapRequest', { requestId }, async () => {
+      const { data, error } = await supabase
+        .from('shift_swap_requests')
+        .update({ status: 'escalated' })
+        .eq('id', requestId)
+        .select()
+        .single();
+
+      if (error) throw toAppError(error, 'Impossibile escalare la richiesta');
+      log.info('rejectSwapRequest', 'Richiesta escalata all\'admin', { requestId });
+      return data;
+    });
+  },
+
+  /**
+   * Admin rifiuta definitivamente una richiesta escalata.
+   */
+  async adminRejectSwapRequest(requestId: string): Promise<ShiftSwapRequest> {
+    return log.withTiming('adminRejectSwapRequest', { requestId }, async () => {
       const { data, error } = await supabase
         .from('shift_swap_requests')
         .update({ status: 'rejected' })
@@ -132,7 +154,7 @@ export const swapRequestsAPI = {
         .single();
 
       if (error) throw toAppError(error, 'Impossibile rifiutare la richiesta');
-      log.info('rejectSwapRequest', 'Richiesta rifiutata', { requestId });
+      log.info('adminRejectSwapRequest', 'Richiesta rifiutata dall\'admin', { requestId });
       return data;
     });
   },
