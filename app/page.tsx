@@ -1,13 +1,47 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 type LoginMode = 'password' | 'magic-link';
 
+/** Maps Supabase error messages to user-friendly Italian messages */
+function translateAuthError(error: { message: string; status?: number }): string {
+  const msg = error.message?.toLowerCase() ?? '';
+
+  if (msg.includes('invalid login credentials') || msg.includes('invalid email or password')) {
+    return 'Email o password non validi. Controlla le credenziali e riprova.';
+  }
+  if (msg.includes('email not confirmed')) {
+    return 'Email non ancora confermata. Controlla la tua casella di posta.';
+  }
+  if (msg.includes('user not found') || msg.includes('no user found')) {
+    return 'Nessun account trovato con questa email.';
+  }
+  if (msg.includes('too many requests') || msg.includes('rate limit')) {
+    return 'Troppi tentativi. Attendi qualche minuto e riprova.';
+  }
+  if (msg.includes('email rate limit') || msg.includes('over_email_send_rate_limit')) {
+    return 'Troppe email inviate. Attendi qualche minuto prima di richiedere un altro link.';
+  }
+  if (msg.includes('signups not allowed') || msg.includes('signup is disabled')) {
+    return 'La registrazione non è abilitata. Contatta l\'amministratore.';
+  }
+  if (msg.includes('network') || msg.includes('fetch')) {
+    return 'Errore di rete. Verifica la connessione internet e riprova.';
+  }
+  if (msg.includes('otp') && msg.includes('disabled')) {
+    return 'Il Magic Link non è abilitato sul server. Contatta l\'amministratore o usa email e password.';
+  }
+
+  // Fallback: show the original error if nothing matches
+  return `Errore: ${error.message}`;
+}
+
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,44 +50,69 @@ export default function LoginPage() {
   const [mode, setMode] = useState<LoginMode>('password');
   const [magicLinkSent, setMagicLinkSent] = useState(false);
 
+  // Show error from callback redirect (e.g. ?error=auth_failed)
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam === 'auth_failed') {
+      setError('Autenticazione fallita. Il link potrebbe essere scaduto o non valido. Riprova.');
+    }
+  }, [searchParams]);
+
   // Check if user is already logged in
   useEffect(() => {
+    let cancelled = false;
+
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
+        if (!cancelled && session?.user) {
           await redirectByRole(session.user.id);
+          return;
         }
-      } catch {
-        // No session, stay on login
-      } finally {
-        setCheckingSession(false);
+      } catch (err) {
+        console.error('Session check error:', err);
+        // Don't block the login page — just show it
       }
+      if (!cancelled) setCheckingSession(false);
     };
     checkSession();
 
-    // Listen for auth state changes (e.g. magic link callback)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          await redirectByRole(session.user.id);
-        }
-      },
-    );
+    // Listen for auth state changes (e.g. magic link callback in same tab)
+    let subscription: { unsubscribe: () => void } | null = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            await redirectByRole(session.user.id);
+          }
+        },
+      );
+      subscription = data.subscription;
+    } catch (err) {
+      console.error('Auth state listener error:', err);
+    }
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const redirectByRole = async (userId: string) => {
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single();
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single();
 
-    if (!userError && userData?.role === 'admin') {
-      router.push('/admin');
-    } else {
+      if (!userError && userData?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/calendar');
+      }
+    } catch {
+      // If role fetch fails, default to user calendar
       router.push('/calendar');
     }
   };
@@ -70,7 +129,7 @@ export default function LoginPage() {
       });
 
       if (signInError) {
-        setError('Email o password non validi');
+        setError(translateAuthError(signInError));
         return;
       }
 
@@ -79,7 +138,11 @@ export default function LoginPage() {
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError('Errore durante il login. Riprova.');
+      if (err instanceof Error && err.message.includes('fetch')) {
+        setError('Impossibile contattare il server di autenticazione. Verifica la connessione.');
+      } else {
+        setError('Errore imprevisto durante il login. Riprova.');
+      }
     } finally {
       setLoading(false);
     }
@@ -100,24 +163,31 @@ export default function LoginPage() {
       });
 
       if (magicError) {
-        setError('Errore nell\'invio del magic link. Verifica l\'email e riprova.');
+        setError(translateAuthError(magicError));
         return;
       }
 
       setMagicLinkSent(true);
     } catch (err) {
       console.error('Magic link error:', err);
-      setError('Errore durante l\'invio. Riprova.');
+      if (err instanceof Error && err.message.includes('fetch')) {
+        setError('Impossibile contattare il server. Verifica la connessione.');
+      } else {
+        setError('Errore imprevisto durante l\'invio del magic link. Riprova.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Show loading while checking session
+  // Show loading while checking session — with a safety timeout
   if (checkingSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-white text-sm mt-4 opacity-75">Verifica sessione...</p>
+        </div>
       </div>
     );
   }
