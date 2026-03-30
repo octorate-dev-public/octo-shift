@@ -3,9 +3,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
-import { supabase } from '@/lib/supabase';
 import { User, Shift } from '@/types';
 import { getInitials, getShiftColor, getShiftLabel, parseDateString } from '@/lib/utils';
+import { useAuth } from '@/lib/useAuth';
 import { format, startOfMonth, endOfMonth, addMonths } from 'date-fns';
 
 interface SwapRequestDetail {
@@ -31,8 +31,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 };
 
 export default function UserSwapsPage() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userName, setUserName] = useState('Utente');
+  const { userId, userName, userRole, logout } = useAuth();
   const [requests, setRequests] = useState<SwapRequestDetail[]>([]);
   const [tab, setTab] = useState<Tab>('received');
   const [loading, setLoading] = useState(true);
@@ -49,17 +48,6 @@ export default function UserSwapsPage() {
   const [selectedTheirShiftId, setSelectedTheirShiftId] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setUserId(data.user.id);
-        setUserName(data.user.email ?? 'Utente');
-      }
-    };
-    init();
-  }, []);
 
   useEffect(() => {
     if (userId) {
@@ -187,7 +175,7 @@ export default function UserSwapsPage() {
 
   if (loading) {
     return (
-      <Layout userRole="user" userName={userName}>
+      <Layout userRole={userRole} userName={userName} onLogout={logout}>
         <div className="flex items-center justify-center h-full">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -196,7 +184,7 @@ export default function UserSwapsPage() {
   }
 
   return (
-    <Layout userRole="user" userName={userName}>
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>

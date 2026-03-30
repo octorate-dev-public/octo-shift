@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Calendar from '@/components/Calendar';
 import { api } from '@/lib/fetcher';
 import { ShiftWithUser, Team, User } from '@/types';
+import { useAuth } from '@/lib/useAuth';
 
 export default function CalendarPage() {
+  const { userName, userRole, logout } = useAuth();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -59,7 +61,7 @@ export default function CalendarPage() {
   };
 
   return (
-    <Layout userRole="user" userName="Utente">
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Calendario</h1>

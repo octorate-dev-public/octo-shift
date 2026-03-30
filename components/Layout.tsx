@@ -8,12 +8,14 @@ interface LayoutProps {
   children: ReactNode;
   userRole?: 'admin' | 'user';
   userName?: string;
+  onLogout?: () => void;
 }
 
 export default function Layout({
   children,
   userRole = 'user',
   userName = 'User',
+  onLogout,
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -32,6 +34,7 @@ export default function Layout({
           userName={userName}
           userRole={userRole}
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          onLogout={onLogout}
         />
 
         {/* Page content */}

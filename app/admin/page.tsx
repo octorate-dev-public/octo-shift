@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { ShiftWithUser, User } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { useAuth } from '@/lib/useAuth';
 
 export default function AdminDashboard() {
+  const { userName, userRole, loading: authLoading, logout } = useAuth();
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalShifts: 0,
@@ -52,9 +54,9 @@ export default function AdminDashboard() {
     loadStats();
   }, []);
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
-      <Layout userRole="admin" userName="Admin">
+      <Layout userRole={userRole} userName={userName} onLogout={logout}>
         <div className="flex items-center justify-center h-full">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -63,7 +65,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <Layout userRole="admin" userName="Admin">
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard Admin</h1>

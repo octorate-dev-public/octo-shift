@@ -5,6 +5,7 @@ import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { User } from '@/types';
 import { getInitials, getShiftColor, getShiftLabel, parseDateString } from '@/lib/utils';
+import { useAuth } from '@/lib/useAuth';
 
 interface SwapRequestWithDetails {
   id: string;
@@ -22,6 +23,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 };
 
 export default function AdminSwapsPage() {
+  const { userName, userRole, logout } = useAuth();
   const [requests, setRequests] = useState<SwapRequestWithDetails[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +77,7 @@ export default function AdminSwapsPage() {
 
   if (loading) {
     return (
-      <Layout userRole="admin" userName="Admin">
+      <Layout userRole={userRole} userName={userName} onLogout={logout}>
         <div className="flex items-center justify-center h-full">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -84,7 +86,7 @@ export default function AdminSwapsPage() {
   }
 
   return (
-    <Layout userRole="admin" userName="Admin">
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Richieste di Scambio</h1>

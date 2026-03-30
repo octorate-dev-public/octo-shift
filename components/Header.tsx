@@ -6,12 +6,14 @@ interface HeaderProps {
   userName: string;
   userRole: 'admin' | 'user';
   onMenuClick: () => void;
+  onLogout?: () => void;
 }
 
 export default function Header({
   userName,
   userRole,
   onMenuClick,
+  onLogout,
 }: HeaderProps) {
   return (
     <header className="bg-white border-b border-gray-200 shadow-sm">
@@ -50,6 +52,7 @@ export default function Header({
           </div>
 
           <button
+            onClick={onLogout}
             className="text-gray-600 hover:text-gray-900"
             aria-label="Logout"
           >
