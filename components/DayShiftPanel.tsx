@@ -51,9 +51,12 @@ export default function DayShiftPanel({
 
   const dayShifts = shifts.filter((s) => s.shift_date === date);
 
-  const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
-  const smartShifts = dayShifts.filter((s) => s.shift_type === 'smartwork');
+  // Leave/permission/sick shifts are treated as "assenti" and do NOT count
+  // toward office or smartwork totals regardless of the underlying shift_type.
   const onLeaveShifts = dayShifts.filter((s) => s.leave_type != null);
+  const activeShifts = dayShifts.filter((s) => s.leave_type == null);
+  const officeShifts = activeShifts.filter((s) => s.shift_type === 'office');
+  const smartShifts = activeShifts.filter((s) => s.shift_type === 'smartwork');
 
   const assignedUserIds = new Set(dayShifts.map((s) => s.user_id));
   const unassignedUsers = users.filter((u) => u.is_active && !assignedUserIds.has(u.id));

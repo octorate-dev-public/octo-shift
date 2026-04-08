@@ -191,15 +191,27 @@ export default function Calendar({
     return map;
   }, [workingShifts]);
 
+  // Helper: tally a shift into the right bucket.
+  // Leave/permission/sick shifts go into "vacation" bucket and are NOT
+  // counted toward office/smartwork totals regardless of shift_type.
+  const tallyShift = (
+    totals: Record<MatrixType, number>,
+    s: { shift_type: string; leave_type: string | null },
+  ) => {
+    if (s.leave_type) {
+      totals.vacation++;
+    } else if (s.shift_type === 'office' || s.shift_type === 'smartwork') {
+      totals[s.shift_type as MatrixType]++;
+    }
+  };
+
   const dateTotals = useMemo(() => {
     const map = new Map<string, Record<MatrixType, number>>();
     days.forEach((date) => {
       const dateStr = localDateStr(date);
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
       if (!nonWorkingSet.has(dateStr)) {
-        shiftLookup.get(dateStr)?.forEach((s) => {
-          if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
-        });
+        shiftLookup.get(dateStr)?.forEach((s) => tallyShift(totals, s));
       }
       map.set(dateStr, totals);
     });
@@ -212,9 +224,7 @@ export default function Calendar({
       const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
       // workingShifts already excludes non-working days
       workingShifts.forEach((s) => {
-        if (s.user_id === u.id && s.shift_type in totals) {
-          totals[s.shift_type as MatrixType]++;
-        }
+        if (s.user_id === u.id) tallyShift(totals, s);
       });
       map.set(u.id, totals);
     });
@@ -223,9 +233,7 @@ export default function Calendar({
 
   const grandTotals = useMemo(() => {
     const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
-    workingShifts.forEach((s) => {
-      if (s.shift_type in totals) totals[s.shift_type as MatrixType]++;
-    });
+    workingShifts.forEach((s) => tallyShift(totals, s));
     return totals;
   }, [workingShifts]);
 
@@ -545,7 +553,8 @@ export default function Calendar({
             // On non-working days, don't render stale DB shifts
             // dayShifts already excludes non-working day shifts (built from workingShifts)
             const cellShifts = isNonWorkingGrid ? [] : (dayShifts[dateStr] || []);
-            const officeCount = cellShifts.filter((s) => s.shift_type === 'office').length;
+            // Leave/permission/sick shifts do not count toward office capacity
+            const officeCount = cellShifts.filter((s) => s.shift_type === 'office' && !s.leave_type).length;
             const isOverCapacity = officeCount > maxCapacity;
             const isSelected = selectedDate === dateStr;
 

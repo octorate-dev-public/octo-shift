@@ -144,20 +144,23 @@ export const schedulingAPI = {
           }
         });
 
-        // 2. Count locked-office shifts toward today's capacity
+        // 2. Count locked-office shifts toward today's capacity.
+        //    Shifts with a leave overlay (ferie/permessi/malattia) are absences
+        //    and do NOT consume office capacity.
         let officeCount = 0;
         sortedUsers.forEach((u) => {
           const lockKey = `${u.id}:${dateStr}`;
-          if (lockedMap.has(lockKey) && lockedMap.get(lockKey)!.shiftType === 'office') officeCount++;
+          const locked = lockedMap.get(lockKey);
+          if (locked && locked.shiftType === 'office' && !locked.leaveType) officeCount++;
         });
 
-        // 3. Persist locked shifts
+        // 3. Persist locked shifts. Leave days don't count toward smart-day equity.
         for (const user of sortedUsers) {
           const lockKey = `${user.id}:${dateStr}`;
           if (lockedMap.has(lockKey)) {
             const locked = lockedMap.get(lockKey)!;
             newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
-            if (locked.shiftType === 'smartwork') {
+            if (locked.shiftType === 'smartwork' && !locked.leaveType) {
               userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
             }
           }
@@ -165,10 +168,32 @@ export const schedulingAPI = {
 
         // 4. Split non-locked users into renouncing vs regular
         //    renounce_smart = true → waives smart days, gets highest office priority,
-        //    and is excluded from the equity average so they don't inflate it
+        //    and is excluded from the equity average so they don't inflate it.
+        //    Users with an existing leave overlay (ferie/permessi/malattia) are
+        //    absent today: they keep their leave record but are excluded from
+        //    both assignment and equity so they don't influence who sits in
+        //    office or smartwork.
         const unlockedUsers = sortedUsers.filter((u) => !lockedMap.has(`${u.id}:${dateStr}`));
-        const renouncingUnlocked = unlockedUsers.filter((u) => u.renounce_smart);
-        const regularUnlocked = unlockedUsers.filter((u) => !u.renounce_smart);
+        const onLeaveToday = unlockedUsers.filter((u) => existingLeaveMap.get(`${u.id}:${dateStr}`));
+        const workingUnlocked = unlockedUsers.filter((u) => !existingLeaveMap.get(`${u.id}:${dateStr}`));
+        const renouncingUnlocked = workingUnlocked.filter((u) => u.renounce_smart);
+        const regularUnlocked = workingUnlocked.filter((u) => !u.renounce_smart);
+
+        // Preserve absence rows without touching office/smart counts.
+        // We keep their previous shift_type if any, otherwise default to smartwork
+        // (purely cosmetic — it does not count toward totals).
+        for (const user of onLeaveToday) {
+          const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
+          const prevType = existingShifts.find(
+            (s) => s.user_id === user.id && s.shift_date === dateStr,
+          )?.shift_type ?? 'smartwork';
+          newShifts.push({
+            user_id: user.id,
+            shift_date: dateStr,
+            shift_type: prevType,
+            leave_type: existingLeave,
+          });
+        }
 
         // 5. Compute running equity average over regular (non-renouncing) users only
         const avgSmartDays = regularUnlocked.length > 0
@@ -252,7 +277,8 @@ export const schedulingAPI = {
       let movedCount = 0;
 
       for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-        const officeShifts = dayShifts.filter((s) => s.shift_type === 'office');
+        // Shifts with a leave overlay are absences and don't occupy the office
+        const officeShifts = dayShifts.filter((s) => s.shift_type === 'office' && !s.leave_type);
 
         if (officeShifts.length <= maxCapacity) continue;
 
@@ -301,7 +327,7 @@ export const schedulingAPI = {
       });
 
       for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-        const officeCount = dayShifts.filter((s) => s.shift_type === 'office').length;
+        const officeCount = dayShifts.filter((s) => s.shift_type === 'office' && !s.leave_type).length;
         if (officeCount > maxCapacity) {
           const msg = `${dateStr}: Capienza superata (${officeCount}/${maxCapacity})`;
           errors.push(msg);
