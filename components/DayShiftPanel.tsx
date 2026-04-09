@@ -346,21 +346,65 @@ export default function DayShiftPanel({
               <ul className="space-y-1.5">
                 {onLeaveShifts.map((shift) => {
                   const user = getUserForShift(shift);
+                  const isLoading = loadingUsers.has(shift.user_id);
+                  // Tipo "sotto" l'assenza: per record nuovi è in shift_type
+                  // (office/smartwork). Per record legacy con shift_type =
+                  // 'vacation'/'permission'/'sick' non c'è — fallback a 'office'.
+                  const underlying: 'office' | 'smartwork' =
+                    shift.shift_type === 'smartwork' ? 'smartwork' : 'office';
                   return (
                     <li
                       key={`leave-${shift.id}`}
-                      className="flex items-center gap-2.5 p-2 rounded-lg bg-gray-50"
+                      className="flex items-center gap-2 p-2 rounded-lg bg-gray-50"
                     >
                       <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                         {user ? getInitials(user.full_name) : '?'}
                       </div>
-                      <span className="flex-1 text-sm text-gray-800 truncate">
-                        {user?.full_name ?? shift.user_id}
-                      </span>
-                      <LeaveBadge shift={shift} />
-                      <span className="text-[10px] text-gray-400">
-                        ({shift.shift_type === 'office' ? 'Ufficio' : 'Smart'})
-                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-800 truncate block">
+                          {user?.full_name ?? shift.user_id}
+                        </span>
+                        <LeaveBadge shift={shift} />
+                      </div>
+                      {/* Toggle del turno sottostante (anche in assenza) */}
+                      <div
+                        className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[10px] flex-shrink-0"
+                        title="Turno previsto se l'assenza venisse rimossa"
+                      >
+                        <button
+                          onClick={() => handleChange(shift.user_id, 'office')}
+                          disabled={isLoading || underlying === 'office'}
+                          className={`px-2 py-1 font-medium transition-colors ${
+                            underlying === 'office'
+                              ? 'bg-blue-100 text-blue-800 cursor-default'
+                              : 'bg-white text-gray-600 hover:bg-blue-50'
+                          } disabled:cursor-default`}
+                        >
+                          {isLoading && underlying !== 'office' ? <Spinner /> : 'Ufficio'}
+                        </button>
+                        <button
+                          onClick={() => handleChange(shift.user_id, 'smartwork')}
+                          disabled={isLoading || underlying === 'smartwork'}
+                          className={`px-2 py-1 font-medium border-l border-gray-300 transition-colors ${
+                            underlying === 'smartwork'
+                              ? 'bg-green-100 text-green-800 cursor-default'
+                              : 'bg-white text-gray-600 hover:bg-green-50'
+                          } disabled:cursor-default`}
+                        >
+                          {isLoading && underlying !== 'smartwork' ? <Spinner /> : 'Smart'}
+                        </button>
+                      </div>
+                      {/* Rimuovi assenza */}
+                      {onLeaveChange && (
+                        <button
+                          onClick={() => handleLeaveChange(shift.user_id, null)}
+                          disabled={isLoading}
+                          className="px-1.5 py-0.5 text-[10px] font-medium text-gray-500 bg-white border border-gray-200 rounded hover:bg-gray-100 disabled:opacity-40 transition-colors flex-shrink-0"
+                          title="Rimuovi assenza"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </li>
                   );
                 })}
