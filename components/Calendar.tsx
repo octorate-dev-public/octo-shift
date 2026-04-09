@@ -2,7 +2,15 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { ShiftWithUser, Team, User } from '@/types';
-import { getMonthDays, getInitials, getShiftColor, getLeaveLabel, getLeaveIcon } from '@/lib/utils';
+import {
+  getMonthDays,
+  getInitials,
+  getShiftColor,
+  getLeaveLabel,
+  getLeaveIcon,
+  isAbsenceShift,
+  isOfficePresence,
+} from '@/lib/utils';
 
 export interface SwapCell {
   userId: string;
@@ -26,6 +34,8 @@ interface CalendarProps {
   selectedDate?: string | null;
   editable?: boolean;
   onSwapShifts?: (a: SwapCell, b: SwapCell) => Promise<void>;
+  /** ID dell'utente loggato — usato per evidenziare di default la sua colonna nella vista Matrice */
+  currentUserId?: string | null;
 }
 
 function localDateStr(date: Date): string {
@@ -113,12 +123,38 @@ export default function Calendar({
   selectedDate,
   editable = false,
   onSwapShifts,
+  currentUserId = null,
 }: CalendarProps) {
-  const [viewMode, setViewMode] = useState<'calendar' | 'matrix'>('calendar');
+  const [viewMode, setViewMode] = useState<'calendar' | 'matrix'>('matrix');
   const [swapMode, setSwapMode] = useState(false);
   const [swapSelected, setSwapSelected] = useState<SwapCell | null>(null);
   const [swapping, setSwapping] = useState(false);
   const [dayShifts, setDayShifts] = useState<Record<string, ShiftWithUser[]>>({});
+
+  // ── Highlight state per la vista Matrice ──────────────────────
+  // Riga (giorno) e colonna (utente) evidenziabili. La colonna di default è
+  // l'utente loggato; la riga di default è "oggi" se cade nel mese visualizzato.
+  const [highlightedDate, setHighlightedDate] = useState<string | null>(null);
+  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(currentUserId);
+
+  // Stringa "oggi" in formato locale YYYY-MM-DD (calcolata una volta sola al mount)
+  const todayStr = useMemo(() => localDateStr(new Date()), []);
+
+  // Quando cambia mese/anno, se "oggi" rientra nel mese visualizzato lo selezioniamo
+  // come riga di default. Altrimenti azzeriamo la selezione di riga.
+  useEffect(() => {
+    const todayDate = new Date();
+    if (todayDate.getFullYear() === year && todayDate.getMonth() === month - 1) {
+      setHighlightedDate(todayStr);
+    } else {
+      setHighlightedDate(null);
+    }
+  }, [year, month, todayStr]);
+
+  // Sync della colonna evidenziata col currentUserId quando cambia
+  useEffect(() => {
+    if (currentUserId) setHighlightedUserId(currentUserId);
+  }, [currentUserId]);
 
   // Exit swap mode when leaving matrix view
   useEffect(() => {
@@ -192,13 +228,15 @@ export default function Calendar({
   }, [workingShifts]);
 
   // Helper: tally a shift into the right bucket.
-  // Leave/permission/sick shifts go into "vacation" bucket and are NOT
-  // counted toward office/smartwork totals regardless of shift_type.
+  // Absences (ferie / permessi / malattia — whether modeled as a leave_type
+  // overlay or as a legacy shift_type of 'vacation'|'permission'|'sick') land
+  // in the "vacation" (Ferie) column and are NEVER counted toward Ufficio or
+  // Smart totals. Only real presences contribute to office/smart counts.
   const tallyShift = (
     totals: Record<MatrixType, number>,
     s: { shift_type: string; leave_type: string | null },
   ) => {
-    if (s.leave_type) {
+    if (isAbsenceShift(s)) {
       totals.vacation++;
     } else if (s.shift_type === 'office' || s.shift_type === 'smartwork') {
       totals[s.shift_type as MatrixType]++;
@@ -336,22 +374,38 @@ export default function Calendar({
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-600 whitespace-nowrap border-r border-gray-200 min-w-[90px]">
                   Data
                 </th>
-                {matrixUsers.map((u) => (
-                  <th
-                    key={u.id}
-                    className="px-2 py-2 text-center font-medium text-gray-600 min-w-[68px] border-r border-gray-100"
-                    title={u.full_name}
-                  >
-                    <div className="flex flex-col items-center gap-0.5">
-                      <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center font-semibold text-[10px]">
-                        {getInitials(u.full_name)}
+                {matrixUsers.map((u) => {
+                  const colHighlighted = highlightedUserId === u.id;
+                  return (
+                    <th
+                      key={u.id}
+                      onClick={() =>
+                        setHighlightedUserId((prev) => (prev === u.id ? null : u.id))
+                      }
+                      className={`px-2 py-2 text-center font-medium min-w-[68px] border-r border-gray-100 cursor-pointer transition-colors ${
+                        colHighlighted
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                      title={u.full_name}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center font-semibold text-[10px] ${
+                            colHighlighted
+                              ? 'bg-amber-400 text-amber-950 ring-2 ring-amber-500'
+                              : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          {getInitials(u.full_name)}
+                        </div>
+                        <span className="truncate max-w-[60px] text-[10px] leading-tight">
+                          {u.full_name.split(' ')[0]}
+                        </span>
                       </div>
-                      <span className="truncate max-w-[60px] text-[10px] leading-tight">
-                        {u.full_name.split(' ')[0]}
-                      </span>
-                    </div>
-                  </th>
-                ))}
+                    </th>
+                  );
+                })}
                 {/* Summary column headers */}
                 {MATRIX_TYPES.map((type) => (
                   <th
@@ -376,20 +430,48 @@ export default function Calendar({
                 const rowShifts = shiftLookup.get(dateStr);
                 const dTotals = dateTotals.get(dateStr)!;
 
+                const isToday = dateStr === todayStr;
+                const isRowHighlighted = highlightedDate === dateStr;
+
                 return (
                   <tr
                     key={dateStr}
-                    className={`border-b border-gray-100 ${!isNonWorking && !swapMode ? 'hover:bg-gray-50/40' : ''}`}
+                    className={`border-b border-gray-100 ${
+                      isRowHighlighted
+                        ? 'bg-amber-50'
+                        : isToday
+                        ? 'bg-yellow-50/60'
+                        : !isNonWorking && !swapMode
+                        ? 'hover:bg-gray-50/40'
+                        : ''
+                    }`}
                   >
-                    {/* Date cell */}
+                    {/* Date cell — clickable to highlight the row */}
                     <td
-                      className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-gray-200"
+                      onClick={() =>
+                        !isNonWorking &&
+                        setHighlightedDate((prev) => (prev === dateStr ? null : dateStr))
+                      }
+                      className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-gray-200 ${
+                        !isNonWorking ? 'cursor-pointer' : ''
+                      } ${isToday ? 'ring-2 ring-inset ring-amber-400' : ''}`}
                       style={{
-                        backgroundColor: isHoliday ? '#fffbeb' : isWeekend ? '#f9fafb' : 'white',
-                        color: isNonWorking ? '#9ca3af' : '#374151',
+                        backgroundColor: isRowHighlighted
+                          ? '#fde68a'
+                          : isToday
+                          ? '#fef3c7'
+                          : isHoliday
+                          ? '#fffbeb'
+                          : isWeekend
+                          ? '#f9fafb'
+                          : 'white',
+                        color: isNonWorking ? '#9ca3af' : isToday ? '#78350f' : '#374151',
+                        fontWeight: isToday ? 700 : undefined,
                       }}
+                      title={isToday ? 'Oggi' : undefined}
                     >
                       {IT_DAYS_ABBR[dow]} {date.getDate()}
+                      {isToday && <span className="ml-1 text-amber-500">●</span>}
                       {isHoliday && <span className="ml-1 text-amber-400 font-bold">*</span>}
                     </td>
 
@@ -397,16 +479,41 @@ export default function Calendar({
                     {matrixUsers.map((u) => {
                       const shift = rowShifts?.get(u.id);
                       // On non-working days, never show shift data regardless of DB content
-                      const type = (!isNonWorking && shift?.shift_type) ? shift.shift_type : null;
-                      const leave = (!isNonWorking && shift?.leave_type) ? shift.leave_type : null;
+                      const rawType: string | null = (!isNonWorking && shift?.shift_type) ? shift.shift_type : null;
+                      // Normalise legacy shift_type='vacation'|'permission'|'sick' into the leave overlay
+                      const legacyLeave: string | null =
+                        rawType === 'vacation' || rawType === 'permission' || rawType === 'sick' ? rawType : null;
+                      const leave: string | null = (!isNonWorking && (shift?.leave_type ?? legacyLeave)) || null;
+                      // The underlying shift_type beneath any leave overlay (office/smartwork only).
+                      // Used purely for visual hint (border colour) — does NOT affect totals.
+                      const underlyingType: string | null =
+                        !legacyLeave && rawType && (rawType === 'office' || rawType === 'smartwork')
+                          ? rawType
+                          : null;
+                      // When there is a leave, display the leave label (Perm./Ferie/Malattia) as
+                      // primary text. Otherwise display the actual shift type.
+                      const type: string | null = leave ? null : underlyingType;
                       const selected = isSwapSelected(u.id, dateStr);
                       const clickable = swapMode && onSwapShifts && !swapping && !isNonWorking;
+                      const colHighlighted = highlightedUserId === u.id;
+                      const cellHighlighted = colHighlighted && isRowHighlighted;
+
+                      // When showing a leave on top of a real shift_type, add a coloured border
+                      // hinting at what the user *would have been* doing (Ufficio/Smart).
+                      const leaveBorderColor: string | null =
+                        leave && underlyingType ? SHIFT_TEXT[underlyingType] ?? null : null;
 
                       return (
                         <td
                           key={u.id}
                           className={`px-1 py-1 text-center border-r border-gray-100 transition-all ${
                             clickable ? 'cursor-pointer' : ''
+                          } ${
+                            cellHighlighted
+                              ? 'bg-amber-200/70'
+                              : colHighlighted
+                              ? 'bg-amber-50/60'
+                              : ''
                           }`}
                           onClick={() => clickable && handleCellClick(u.id, dateStr, type)}
                         >
@@ -425,20 +532,33 @@ export default function Calendar({
                                 style={
                                   type
                                     ? { backgroundColor: SHIFT_BG[type] ?? '#f3f4f6', color: SHIFT_TEXT[type] ?? '#374151' }
+                                    : leave
+                                    ? {
+                                        backgroundColor: LEAVE_BG[leave],
+                                        color: LEAVE_TEXT[leave],
+                                        ...(leaveBorderColor
+                                          ? {
+                                              border: `2px solid ${leaveBorderColor}`,
+                                              padding: '0 2px',
+                                            }
+                                          : {}),
+                                      }
                                     : { color: '#d1d5db' }
                                 }
+                                title={
+                                  leave
+                                    ? underlyingType
+                                      ? `${LEAVE_LABELS[leave]} (previsto: ${SHIFT_LABELS[underlyingType]})`
+                                      : LEAVE_LABELS[leave]
+                                    : undefined
+                                }
                               >
-                                {type ? SHIFT_LABELS[type] ?? type : '—'}
+                                {type
+                                  ? SHIFT_LABELS[type] ?? type
+                                  : leave
+                                  ? LEAVE_LABELS[leave]
+                                  : '—'}
                               </div>
-                              {leave && (
-                                <div
-                                  className="rounded px-1 text-[9px] font-medium"
-                                  style={{ backgroundColor: LEAVE_BG[leave], color: LEAVE_TEXT[leave] }}
-                                  title={LEAVE_LABELS[leave]}
-                                >
-                                  {LEAVE_ICONS[leave]}
-                                </div>
-                              )}
                             </div>
                           )}
                         </td>
@@ -553,8 +673,8 @@ export default function Calendar({
             // On non-working days, don't render stale DB shifts
             // dayShifts already excludes non-working day shifts (built from workingShifts)
             const cellShifts = isNonWorkingGrid ? [] : (dayShifts[dateStr] || []);
-            // Leave/permission/sick shifts do not count toward office capacity
-            const officeCount = cellShifts.filter((s) => s.shift_type === 'office' && !s.leave_type).length;
+            // Absences (ferie / permessi / malattia) do not count toward office capacity
+            const officeCount = cellShifts.filter(isOfficePresence).length;
             const isOverCapacity = officeCount > maxCapacity;
             const isSelected = selectedDate === dateStr;
 

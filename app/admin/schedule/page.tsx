@@ -8,8 +8,10 @@ import DayShiftPanel from '@/components/DayShiftPanel';
 import { api } from '@/lib/fetcher';
 import { ShiftWithUser, User, Team, ShiftPreference, PreferenceType, LeaveType } from '@/types';
 import type { SwapCell } from '@/components/Calendar';
+import { useAuth } from '@/lib/useAuth';
 
 export default function SchedulePage() {
+  const { userId } = useAuth();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth()); // 0-based
@@ -269,6 +271,7 @@ export default function SchedulePage() {
                 selectedDate={selectedDate}
                 editable={true}
                 onSwapShifts={handleSwapShifts}
+                currentUserId={userId}
               />
             )}
           </div>

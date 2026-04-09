@@ -152,11 +152,17 @@ export const shiftsAPI = {
 
   async getOfficeCountForDate(date: string): Promise<number> {
     return log.withTiming('getOfficeCountForDate', { date }, async () => {
+      // Absences (ferie / permessi / malattia) — whether expressed as a
+      // leave_type overlay or as a legacy shift_type = 'vacation'|'permission'|
+      // 'sick' — must NOT count toward office presence. We filter legacy
+      // values out at query time by keying on shift_type='office', and then
+      // ignore any row with a leave_type overlay by requiring leave_type IS NULL.
       const { data, error } = await supabase
         .from('shifts')
-        .select('id', { count: 'exact' })
+        .select('id')
         .eq('shift_date', date)
-        .eq('shift_type', 'office');
+        .eq('shift_type', 'office')
+        .is('leave_type', null);
 
       if (error) throw toAppError(error, 'Impossibile contare le presenze in ufficio');
       return data?.length || 0;
@@ -174,13 +180,21 @@ export const shiftsAPI = {
 
       const stats = { office: 0, smartwork: 0, sick: 0, vacation: 0, permission: 0 };
       (data || []).forEach((shift: any) => {
-        // Count work location
-        if (shift.shift_type === 'office') stats.office++;
-        else if (shift.shift_type === 'smartwork') stats.smartwork++;
-        // Count leave overlay (independent)
-        if (shift.leave_type === 'sick') stats.sick++;
-        else if (shift.leave_type === 'vacation') stats.vacation++;
-        else if (shift.leave_type === 'permission') stats.permission++;
+        // Absences (ferie / permessi / malattia) never count toward office or
+        // smartwork presence, whether expressed as a leave_type overlay or as
+        // a legacy shift_type of 'vacation' | 'permission' | 'sick'.
+        const legacyLeave =
+          shift.shift_type === 'vacation' || shift.shift_type === 'permission' || shift.shift_type === 'sick'
+            ? shift.shift_type
+            : null;
+        const leave = shift.leave_type ?? legacyLeave;
+        if (!leave) {
+          if (shift.shift_type === 'office') stats.office++;
+          else if (shift.shift_type === 'smartwork') stats.smartwork++;
+        }
+        if (leave === 'sick') stats.sick++;
+        else if (leave === 'vacation') stats.vacation++;
+        else if (leave === 'permission') stats.permission++;
       });
       return stats;
     });

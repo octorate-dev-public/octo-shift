@@ -8,7 +8,7 @@ import { ShiftWithUser, Team, User } from '@/types';
 import { useAuth } from '@/lib/useAuth';
 
 export default function CalendarPage() {
-  const { userName, userRole, logout } = useAuth();
+  const { userId, userName, userRole, logout } = useAuth();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -95,6 +95,7 @@ export default function CalendarPage() {
             holidays={holidays}
             workDays={workDays}
             editable={false}
+            currentUserId={userId}
           />
         )}
       </div>

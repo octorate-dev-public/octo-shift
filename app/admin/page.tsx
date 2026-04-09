@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { ShiftWithUser, User } from '@/types';
-import { formatDate } from '@/lib/utils';
+import { formatDate, isOfficePresence } from '@/lib/utils';
 import { useAuth } from '@/lib/useAuth';
 
 export default function AdminDashboard() {
@@ -31,7 +31,8 @@ export default function AdminDashboard() {
           api.get<any[]>(`/api/on-call?date=${today}`),
         ]);
 
-        const officeCount = todayShifts.filter((s) => s.shift_type === 'office').length;
+        // Ferie / permessi / malattia non contano come presenze in ufficio
+        const officeCount = todayShifts.filter(isOfficePresence).length;
         const maxCapacity = settingsData.max_office_capacity
           ? parseInt(settingsData.max_office_capacity)
           : 30;

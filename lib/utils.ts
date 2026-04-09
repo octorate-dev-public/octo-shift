@@ -75,6 +75,30 @@ export const getSeniorityDays = (seniorityDate: string): number => {
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 };
 
+// Absence helpers ──────────────────────────────────────────────
+// The codebase has two historical representations for an absence:
+//   1) new model: shift_type = 'office'|'smartwork' with a leave_type overlay
+//      ('sick' | 'vacation' | 'permission')
+//   2) legacy model: shift_type itself is 'vacation' | 'permission'
+// Both must be treated as "absent" for office/smartwork totals and capacity.
+export const isAbsenceShiftType = (shiftType: string | null | undefined): boolean =>
+  shiftType === 'vacation' || shiftType === 'permission' || shiftType === 'sick';
+
+export const isAbsenceShift = (shift: {
+  shift_type?: string | null;
+  leave_type?: string | null;
+}): boolean => !!shift.leave_type || isAbsenceShiftType(shift.shift_type);
+
+export const isOfficePresence = (shift: {
+  shift_type?: string | null;
+  leave_type?: string | null;
+}): boolean => shift.shift_type === 'office' && !isAbsenceShift(shift);
+
+export const isSmartPresence = (shift: {
+  shift_type?: string | null;
+  leave_type?: string | null;
+}): boolean => shift.shift_type === 'smartwork' && !isAbsenceShift(shift);
+
 // Shift utilities (work location)
 export const getShiftColor = (shiftType: string): string => {
   const colors: Record<string, string> = {

@@ -2,7 +2,7 @@ import { shiftsAPI } from './shifts';
 import { usersAPI } from './users';
 import { settingsAPI } from './settings';
 import { preferencesAPI } from './preferences';
-import { getMonthDays, getSeniorityDays, formatDate } from '../utils';
+import { getMonthDays, getSeniorityDays, formatDate, isAbsenceShiftType, isOfficePresence } from '../utils';
 import { User, Shift, ShiftType, LeaveType, PreferenceType } from '@/types';
 import { createLogger, toAppError } from '../logger';
 
@@ -38,12 +38,22 @@ export const schedulingAPI = {
       // Fetch existing locked shifts so we can preserve them
       const existingShifts = await shiftsAPI.getMonthShifts(year, month);
       const lockedMap = new Map<string, { shiftType: ShiftType; leaveType: LeaveType | null }>(); // key = `userId:date`
-      // Also track existing leave_type for ALL shifts (not just locked) so we preserve them
+      // Track existing leave for ALL shifts (not just locked) so we preserve them.
+      // This covers BOTH representations: the new `leave_type` overlay column
+      // and the legacy `shift_type = 'vacation' | 'permission' | 'sick'` rows.
       const existingLeaveMap = new Map<string, LeaveType | null>();
       existingShifts.forEach((s) => {
         const key = `${s.user_id}:${s.shift_date}`;
-        if (s.locked) lockedMap.set(key, { shiftType: s.shift_type, leaveType: s.leave_type });
-        if (s.leave_type) existingLeaveMap.set(key, s.leave_type);
+        const leave: LeaveType | null =
+          s.leave_type ?? (isAbsenceShiftType(s.shift_type) ? (s.shift_type as LeaveType) : null);
+        if (s.locked) {
+          // If it's a legacy leave row, normalise shiftType to 'smartwork' so
+          // the locked row doesn't silently consume office capacity later.
+          const normalisedShiftType: ShiftType =
+            s.shift_type === 'office' || s.shift_type === 'smartwork' ? s.shift_type : 'smartwork';
+          lockedMap.set(key, { shiftType: normalisedShiftType, leaveType: leave });
+        }
+        if (leave) existingLeaveMap.set(key, leave);
       });
       log.info('generateMonthlySchedule', `Trovati ${lockedMap.size} turni bloccati da preservare`);
 
@@ -277,8 +287,9 @@ export const schedulingAPI = {
       let movedCount = 0;
 
       for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-        // Shifts with a leave overlay are absences and don't occupy the office
-        const officeShifts = dayShifts.filter((s) => s.shift_type === 'office' && !s.leave_type);
+        // Absences (ferie/permessi/malattia, via overlay or legacy shift_type)
+        // don't occupy the office
+        const officeShifts = dayShifts.filter(isOfficePresence);
 
         if (officeShifts.length <= maxCapacity) continue;
 
@@ -327,7 +338,7 @@ export const schedulingAPI = {
       });
 
       for (const [dateStr, dayShifts] of Object.entries(shiftsByDate)) {
-        const officeCount = dayShifts.filter((s) => s.shift_type === 'office' && !s.leave_type).length;
+        const officeCount = dayShifts.filter(isOfficePresence).length;
         if (officeCount > maxCapacity) {
           const msg = `${dateStr}: Capienza superata (${officeCount}/${maxCapacity})`;
           errors.push(msg);

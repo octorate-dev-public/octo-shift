@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/fetcher';
-import { formatDate, getInitials } from '@/lib/utils';
+import { formatDate, getInitials, isOfficePresence } from '@/lib/utils';
 import { ShiftWithUser, Team } from '@/types';
 
 interface OnCallEntry {
@@ -51,8 +51,9 @@ export default function PublicOnCallPage() {
 
       setOnCallUsers(onCallData);
 
-      // Filter office shifts and group by team
-      const officeShifts = shiftsData.filter((s) => s.shift_type === 'office' && s.user);
+      // Filter office shifts and group by team — ferie/permessi/malattia
+      // non contano come presenze in ufficio
+      const officeShifts = shiftsData.filter((s) => isOfficePresence(s) && s.user);
       setOfficeTotal(officeShifts.length);
 
       // Group by team_id, using real team name and color
