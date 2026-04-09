@@ -228,18 +228,29 @@ export default function Calendar({
   }, [workingShifts]);
 
   // Helper: tally a shift into the right bucket.
-  // Absences (ferie / permessi / malattia — whether modeled as a leave_type
-  // overlay or as a legacy shift_type of 'vacation'|'permission'|'sick') land
-  // in the "vacation" (Ferie) column and are NEVER counted toward Ufficio or
-  // Smart totals. Only real presences contribute to office/smart counts.
+  //
+  // Le colonne riassuntive si SOVRAPPONGONO di proposito:
+  //  • Ufficio  → tutti gli shift con shift_type='office'  (anche se c'è un
+  //               permesso/ferie sopra)
+  //  • Smart    → tutti gli shift con shift_type='smartwork' (idem)
+  //  • Ferie    → tutte le assenze (ferie / permesso / malattia), sia come
+  //               leave_type overlay che come shift_type legacy
+  //
+  // Così l'admin sa, per ogni giorno, "se i permessi venissero rimossi quante
+  // persone resterebbero in ufficio e quante in smart". Le somme delle tre
+  // colonne possono superare il numero di dipendenti perché le assenze su
+  // turni reali sono contate due volte (una in Ferie, una nello shift sotto).
   const tallyShift = (
     totals: Record<MatrixType, number>,
     s: { shift_type: string; leave_type: string | null },
   ) => {
+    // Conteggio del turno reale sotto (anche se c'è un'assenza sopra)
+    if (s.shift_type === 'office' || s.shift_type === 'smartwork') {
+      totals[s.shift_type as MatrixType]++;
+    }
+    // Conteggio dell'assenza nella colonna Ferie
     if (isAbsenceShift(s)) {
       totals.vacation++;
-    } else if (s.shift_type === 'office' || s.shift_type === 'smartwork') {
-      totals[s.shift_type as MatrixType]++;
     }
   };
 
