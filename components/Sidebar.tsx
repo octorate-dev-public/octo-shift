@@ -109,7 +109,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
     <aside
       className={`${
         isOpen ? 'w-64' : 'w-20'
-      } bg-white border-r border-gray-200 h-screen overflow-y-auto transition-all duration-300 sticky top-0`}
+      } shrink-0 bg-white border-r border-gray-200 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30`}
     >
       {/* Logo */}
       <div className="p-4 border-b border-gray-200">

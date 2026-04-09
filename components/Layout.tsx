@@ -28,7 +28,10 @@ export default function Layout({
       />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* min-w-0 è essenziale: senza, una tabella molto larga (es. matrice
+          del calendario) fa espandere la colonna flex oltre la sua quota e
+          finisce per coprire/spingere la sidebar. */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header */}
         <Header
           userName={userName}
