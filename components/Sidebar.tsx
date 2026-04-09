@@ -2,44 +2,108 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 interface SidebarProps {
   isOpen: boolean;
   userRole: 'admin' | 'user';
 }
 
+interface MenuItem {
+  label: string;
+  href: string;
+  icon: string;
+}
+
+interface MenuSection {
+  key: string;
+  label: string;
+  href: string; // dove andare quando si clicca sul titolo della sezione
+  items: MenuItem[];
+}
+
 export default function Sidebar({ isOpen, userRole }: SidebarProps) {
+  const pathname = usePathname() ?? '';
+
+  // Tutte le sezioni partono espanse: i menu devono essere immediatamente
+  // visibili e cliccabili senza un toggle preliminare.
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     schedule: true,
-    management: false,
-    admin: false,
+    management: true,
+    admin: true,
   });
 
-  const toggleSection = (section: string) => {
+  const toggleSection = (e: React.MouseEvent, section: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     setExpandedSections((prev) => ({
       ...prev,
       [section]: !prev[section],
     }));
   };
 
-  const adminMenuItems = [
+  const adminMenuItems: MenuItem[] = [
     { label: 'Dashboard', href: '/admin', icon: '📊' },
     { label: 'Dipendenti', href: '/admin/users', icon: '👥' },
     { label: 'Team', href: '/admin/teams', icon: '🏢' },
     { label: 'Impostazioni', href: '/admin/settings', icon: '⚙️' },
   ];
 
-  const userMenuItems = [
+  const userMenuItems: MenuItem[] = [
     { label: 'Il mio Schedule', href: '/schedule', icon: '📅' },
     { label: 'Preferenze Turno', href: '/preferences', icon: '⭐' },
     { label: 'Richieste Scambio', href: '/swaps', icon: '🔄' },
     { label: 'Ferie e Permessi', href: '/leave', icon: '✈️' },
   ];
 
-  const commonMenuItems = [
+  const commonMenuItems: MenuItem[] = [
     { label: 'Calendario', href: '/calendar', icon: '📆' },
     { label: 'Chi è Reperibile', href: '/on-call', icon: '📞' },
   ];
+
+  // Costruisce dinamicamente le sezioni in base al ruolo
+  const sections: MenuSection[] = [];
+
+  if (userRole === 'admin') {
+    sections.push({
+      key: 'admin',
+      label: 'Amministrazione',
+      href: '/admin',
+      items: adminMenuItems,
+    });
+  }
+
+  sections.push({
+    key: 'schedule',
+    label: 'Scheduling',
+    href: userRole === 'admin' ? '/admin/schedule' : '/schedule',
+    items:
+      userRole === 'admin'
+        ? [
+            { label: 'Crea Schedule', href: '/admin/schedule', icon: '📋' },
+            ...commonMenuItems,
+          ]
+        : [...userMenuItems, ...commonMenuItems],
+  });
+
+  if (userRole === 'admin') {
+    sections.push({
+      key: 'management',
+      label: 'Gestione',
+      href: '/admin/leave',
+      items: [
+        { label: 'Ferie e Permessi', href: '/admin/leave', icon: '✈️' },
+        { label: 'Reperibilità', href: '/admin/on-call', icon: '📞' },
+        { label: 'Richieste Scambio', href: '/admin/swaps', icon: '🔄' },
+      ],
+    });
+  }
+
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    // Match esatto, oppure è una sotto-rotta
+    return pathname === href || pathname.startsWith(href + '/');
+  };
 
   return (
     <aside
@@ -56,157 +120,69 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="p-4 space-y-2">
-        {/* Admin Section */}
-        {userRole === 'admin' && (
-          <div>
-            <button
-              onClick={() => toggleSection('admin')}
-              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-            >
-              <span className={isOpen ? '' : 'hidden'}>Amministrazione</span>
-              <svg
-                className={`w-4 h-4 transition-transform ${
-                  expandedSections.admin ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                />
-              </svg>
-            </button>
-            {expandedSections.admin && isOpen && (
-              <div className="ml-2 mt-2 space-y-1">
-                {adminMenuItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Schedule Section */}
-        <div>
-          <button
-            onClick={() => toggleSection('schedule')}
-            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-          >
-            <span className={isOpen ? '' : 'hidden'}>Scheduling</span>
-            <svg
-              className={`w-4 h-4 transition-transform ${
-                expandedSections.schedule ? 'rotate-180' : ''
-              }`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 14l-7 7m0 0l-7-7m7 7V3"
-              />
-            </svg>
-          </button>
-          {expandedSections.schedule && isOpen && (
-            <div className="ml-2 mt-2 space-y-1">
-              {userRole === 'admin' && (
+        {sections.map((section) => {
+          const expanded = expandedSections[section.key];
+          return (
+            <div key={section.key}>
+              {/* Header di sezione: il titolo è un Link, il chevron è un button separato */}
+              <div className="flex items-center w-full rounded-lg hover:bg-gray-100 transition-colors">
                 <Link
-                  href="/admin/schedule"
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
+                  href={section.href}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-l-lg ${
+                    isActive(section.href) ? 'text-blue-700' : 'text-gray-700'
+                  }`}
                 >
-                  <span>📋</span>
-                  <span>Crea Schedule</span>
+                  <span className={isOpen ? '' : 'hidden'}>{section.label}</span>
                 </Link>
+                {isOpen && (
+                  <button
+                    type="button"
+                    onClick={(e) => toggleSection(e, section.key)}
+                    aria-label={expanded ? 'Comprimi sezione' : 'Espandi sezione'}
+                    className="px-3 py-2 text-gray-500 hover:text-gray-900 rounded-r-lg"
+                  >
+                    <svg
+                      className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Voci di sezione */}
+              {expanded && isOpen && (
+                <div className="ml-2 mt-2 space-y-1">
+                  {section.items.map((item) => {
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                          active
+                            ? 'bg-blue-50 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-              {userRole === 'user' &&
-                userMenuItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
-              {commonMenuItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                >
-                  <span>{item.icon}</span>
-                  <span className={isOpen ? '' : 'hidden'}>{item.label}</span>
-                </Link>
-              ))}
             </div>
-          )}
-        </div>
-
-        {/* Management Section (Ferie, Permessi) */}
-        {userRole === 'admin' && (
-          <div>
-            <button
-              onClick={() => toggleSection('management')}
-              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-            >
-              <span className={isOpen ? '' : 'hidden'}>Gestione</span>
-              <svg
-                className={`w-4 h-4 transition-transform ${
-                  expandedSections.management ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                />
-              </svg>
-            </button>
-            {expandedSections.management && isOpen && (
-              <div className="ml-2 mt-2 space-y-1">
-                <Link
-                  href="/admin/leave"
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                >
-                  <span>✈️</span>
-                  <span>Ferie e Permessi</span>
-                </Link>
-                <Link
-                  href="/admin/on-call"
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                >
-                  <span>📞</span>
-                  <span>Reperibilità</span>
-                </Link>
-                <Link
-                  href="/admin/swaps"
-                  className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-                >
-                  <span>🔄</span>
-                  <span>Richieste Scambio</span>
-                </Link>
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })}
       </nav>
 
       {/* Help Section */}

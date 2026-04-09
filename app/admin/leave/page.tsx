@@ -59,9 +59,15 @@ export default function AdminLeavePage() {
   };
 
   const handleDelete = async (shift: Shift) => {
-    if (!confirm('Eliminare questa assenza?')) return;
+    if (!confirm('Rimuovere questa assenza? Il turno sottostante (Ufficio/Smart) sarà ripristinato.')) return;
     try {
-      await api.del(`/api/shifts?userId=${shift.user_id}&shiftDate=${shift.shift_date}`);
+      // Rimuove SOLO il leave_type, preservando lo shift_type sottostante.
+      await api.patch('/api/shifts', {
+        userId: shift.user_id,
+        shiftDate: shift.shift_date,
+        action: 'setLeave',
+        leaveType: null,
+      });
       await loadData();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Errore durante l\'eliminazione';
@@ -74,7 +80,15 @@ export default function AdminLeavePage() {
     if (!formUserId || !formDate) return;
     try {
       setAddingShift(true);
-      await api.post('/api/shifts', { userId: formUserId, shiftDate: formDate, shiftType: formType });
+      // Imposta SOLO il leave_type, preservando l'eventuale shift_type
+      // (Ufficio/Smart) già presente per quel giorno. In questo modo i totali
+      // della matrice continuano a sapere "se rimuovi il permesso, dove va".
+      await api.patch('/api/shifts', {
+        userId: formUserId,
+        shiftDate: formDate,
+        action: 'setLeave',
+        leaveType: formType,
+      });
       setShowAddForm(false);
       setFormDate('');
       await loadData();

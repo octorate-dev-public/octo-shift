@@ -69,7 +69,14 @@ export default function UserLeavePage() {
     try {
       setSubmitting(true);
       setAddError(null);
-      await api.post('/api/shifts', { userId, shiftDate: formDate, shiftType: formType });
+      // Imposta SOLO il leave_type, preservando l'eventuale shift_type
+      // (Ufficio/Smart) già pianificato per quel giorno.
+      await api.patch('/api/shifts', {
+        userId,
+        shiftDate: formDate,
+        action: 'setLeave',
+        leaveType: formType,
+      });
       setShowAddForm(false);
       setFormDate('');
       setFormType('vacation');
@@ -83,9 +90,15 @@ export default function UserLeavePage() {
   };
 
   const handleDelete = async (shift: Shift) => {
-    if (!confirm('Eliminare questa richiesta di assenza?')) return;
+    if (!confirm('Rimuovere questa richiesta di assenza? Il turno sottostante (Ufficio/Smart) sarà ripristinato.')) return;
     try {
-      await api.del(`/api/shifts?userId=${shift.user_id}&shiftDate=${shift.shift_date}`);
+      // Rimuove SOLO il leave_type, lasciando intatto lo shift_type sottostante.
+      await api.patch('/api/shifts', {
+        userId: shift.user_id,
+        shiftDate: shift.shift_date,
+        action: 'setLeave',
+        leaveType: null,
+      });
       if (userId) await loadData(userId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore durante l'eliminazione";
