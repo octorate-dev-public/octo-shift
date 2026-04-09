@@ -5,7 +5,7 @@ import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { Shift } from '@/types';
-import { formatDate, getShiftColor, getShiftLabel, parseDateString } from '@/lib/utils';
+import { formatDate, getLeaveColor, getLeaveLabel, parseDateString } from '@/lib/utils';
 
 type LeaveType = 'vacation' | 'permission';
 
@@ -51,7 +51,7 @@ export default function UserLeavePage() {
         `/api/shifts?userId=${uid}&start=${start}&end=${end}`,
       );
       const leaveShifts = data.filter(
-        (s) => s.shift_type === 'vacation' || s.shift_type === 'permission',
+        (s) => s.leave_type === 'vacation' || s.leave_type === 'permission',
       );
       leaveShifts.sort((a, b) => b.shift_date.localeCompare(a.shift_date));
       setShifts(leaveShifts);
@@ -104,8 +104,8 @@ export default function UserLeavePage() {
   };
 
   const currentYear = new Date().getFullYear();
-  const vacationCount = shifts.filter((s) => s.shift_type === 'vacation').length;
-  const permissionCount = shifts.filter((s) => s.shift_type === 'permission').length;
+  const vacationCount = shifts.filter((s) => s.leave_type === 'vacation').length;
+  const permissionCount = shifts.filter((s) => s.leave_type === 'permission').length;
 
   if (loading) {
     return (
@@ -241,9 +241,11 @@ export default function UserLeavePage() {
                     </td>
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getShiftColor(shift.shift_type)}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          shift.leave_type ? getLeaveColor(shift.leave_type) : 'bg-gray-100 text-gray-700'
+                        }`}
                       >
-                        {getShiftLabel(shift.shift_type)}
+                        {shift.leave_type ? getLeaveLabel(shift.leave_type) : '—'}
                       </span>
                     </td>
                     <td className="px-6 py-4">
