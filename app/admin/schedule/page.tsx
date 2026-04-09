@@ -272,6 +272,11 @@ export default function SchedulePage() {
                 editable={true}
                 onSwapShifts={handleSwapShifts}
                 currentUserId={userId}
+                onAssignShift={(targetUserId, date) => {
+                  // dragType è impostato dal DraggableUserList quando inizia il drag
+                  if (!dragType) return;
+                  handleShiftChange(targetUserId, date, dragType);
+                }}
               />
             )}
           </div>

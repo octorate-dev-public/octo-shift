@@ -36,6 +36,12 @@ interface CalendarProps {
   onSwapShifts?: (a: SwapCell, b: SwapCell) => Promise<void>;
   /** ID dell'utente loggato — usato per evidenziare di default la sua colonna nella vista Matrice */
   currentUserId?: string | null;
+  /**
+   * Callback invocata quando una "pillola" Ufficio/Smart viene rilasciata su una
+   * cella della vista Matrice. La cella determina utente e data; il tipo di
+   * shift viene determinato dal chiamante (in base al dragType corrente).
+   */
+  onAssignShift?: (userId: string, date: string) => void;
 }
 
 function localDateStr(date: Date): string {
@@ -124,7 +130,10 @@ export default function Calendar({
   editable = false,
   onSwapShifts,
   currentUserId = null,
+  onAssignShift,
 }: CalendarProps) {
+  // Cella attualmente sotto il drag (per evidenziazione visiva nella matrice)
+  const [dragOverCell, setDragOverCell] = useState<{ userId: string; date: string } | null>(null);
   const [viewMode, setViewMode] = useState<'calendar' | 'matrix'>('matrix');
   const [swapMode, setSwapMode] = useState(false);
   const [swapSelected, setSwapSelected] = useState<SwapCell | null>(null);
@@ -508,6 +517,11 @@ export default function Calendar({
                       const clickable = swapMode && onSwapShifts && !swapping && !isNonWorking;
                       const colHighlighted = highlightedUserId === u.id;
                       const cellHighlighted = colHighlighted && isRowHighlighted;
+                      const droppable = !!onAssignShift && !isNonWorking && editable;
+                      const isDragOver =
+                        droppable &&
+                        dragOverCell?.userId === u.id &&
+                        dragOverCell?.date === dateStr;
 
                       // When showing a leave on top of a real shift_type, add a coloured border
                       // hinting at what the user *would have been* doing (Ufficio/Smart).
@@ -520,13 +534,50 @@ export default function Calendar({
                           className={`px-1 py-1 text-center border-r border-gray-100 transition-all ${
                             clickable ? 'cursor-pointer' : ''
                           } ${
-                            cellHighlighted
+                            isDragOver
+                              ? 'bg-indigo-100 ring-2 ring-indigo-400 ring-inset'
+                              : cellHighlighted
                               ? 'bg-amber-200/70'
                               : colHighlighted
                               ? 'bg-amber-50/60'
                               : ''
                           }`}
                           onClick={() => clickable && handleCellClick(u.id, dateStr, type)}
+                          onDragOver={
+                            droppable
+                              ? (e) => {
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = 'copy';
+                                  if (
+                                    dragOverCell?.userId !== u.id ||
+                                    dragOverCell?.date !== dateStr
+                                  ) {
+                                    setDragOverCell({ userId: u.id, date: dateStr });
+                                  }
+                                }
+                              : undefined
+                          }
+                          onDragLeave={
+                            droppable
+                              ? () => {
+                                  if (
+                                    dragOverCell?.userId === u.id &&
+                                    dragOverCell?.date === dateStr
+                                  ) {
+                                    setDragOverCell(null);
+                                  }
+                                }
+                              : undefined
+                          }
+                          onDrop={
+                            droppable
+                              ? (e) => {
+                                  e.preventDefault();
+                                  setDragOverCell(null);
+                                  onAssignShift?.(u.id, dateStr);
+                                }
+                              : undefined
+                          }
                         >
                           {isNonWorking ? (
                             <div className="text-[10px]" style={{ color: '#e5e7eb' }}>—</div>
