@@ -84,7 +84,13 @@ export default function UserSwapsPage() {
 
   const formatDate = (dateStr: string) => {
     const d = parseDateString(dateStr);
-    return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+    // es. "mar 21 apr 2026" — include il giorno della settimana per orientarsi al volo
+    return d.toLocaleDateString('it-IT', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   };
 
   // --- New request form logic ---
@@ -230,18 +236,25 @@ export default function UserSwapsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Il mio turno da scambiare
                 </label>
-                <select
-                  value={selectedMyShiftId}
-                  onChange={(e) => setSelectedMyShiftId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Seleziona un turno...</option>
-                  {myShifts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {formatDate(s.shift_date)} — {getShiftLabel(s.shift_type)}
-                    </option>
-                  ))}
-                </select>
+                {myShifts.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">
+                    Nessun turno disponibile da scambiare. I turni bloccati dall&apos;admin non
+                    possono essere scambiati.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedMyShiftId}
+                    onChange={(e) => setSelectedMyShiftId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Seleziona un turno...</option>
+                    {myShifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {formatDate(s.shift_date)} — {getShiftLabel(s.shift_type)}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Colleague */}

@@ -73,18 +73,50 @@ export const shiftsAPI = {
     });
   },
 
-  /** Update only the leave_type of an existing shift (without changing shift_type) */
+  /**
+   * Imposta il leave_type per un giorno specifico.
+   * Se lo shift non esiste ancora lo crea con shift_type='smartwork' (default).
+   * Se leaveType è null e lo shift non esiste, non fa nulla.
+   */
   async setLeaveType(userId: string, shiftDate: string, leaveType: LeaveType | null): Promise<Shift> {
     return log.withTiming('setLeaveType', { userId, shiftDate, leaveType }, async () => {
+      if (leaveType === null) {
+        // Rimozione: aggiorna solo se la riga esiste già
+        const { data: existing } = await supabase
+          .from('shifts')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('shift_date', shiftDate)
+          .maybeSingle();
+
+        if (!existing) {
+          // Nessuna riga → niente da pulire, restituisce un oggetto vuoto coerente
+          return { id: '', user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: null, locked: false, locked_by: null, created_at: '', updated_at: '' } as unknown as Shift;
+        }
+
+        const { data, error } = await supabase
+          .from('shifts')
+          .update({ leave_type: null })
+          .eq('user_id', userId)
+          .eq('shift_date', shiftDate)
+          .select()
+          .single();
+
+        if (error) throw toAppError(error, 'Impossibile rimuovere il tipo di assenza');
+        return data;
+      }
+
+      // Inserimento/aggiornamento: upsert per gestire il caso in cui lo shift non esiste
       const { data, error } = await supabase
         .from('shifts')
-        .update({ leave_type: leaveType })
-        .eq('user_id', userId)
-        .eq('shift_date', shiftDate)
+        .upsert(
+          { user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: leaveType },
+          { onConflict: 'user_id,shift_date', ignoreDuplicates: false },
+        )
         .select()
         .single();
 
-      if (error) throw toAppError(error, 'Impossibile aggiornare il tipo di assenza');
+      if (error) throw toAppError(error, 'Impossibile salvare il tipo di assenza');
       return data;
     });
   },

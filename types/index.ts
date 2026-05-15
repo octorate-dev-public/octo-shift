@@ -54,6 +54,26 @@ export interface OnCallAssignment {
   updated_at: string;
 }
 
+/** Assegnazione giornaliera di reperibilità (un dipendente per giorno). */
+export interface OnCallDailyAssignment {
+  id: string;
+  user_id: string;
+  assignment_date: string; // YYYY-MM-DD
+  created_at: string;
+  updated_at: string;
+}
+
+/** Statistiche di riepilogo per un anno di reperibilità. */
+export interface OnCallYearStats {
+  totalDays: number;
+  coveredDays: number;
+  uncoveredDays: number;
+  /** Numero di settimane con conflitto ferie. */
+  vacationConflicts: number;
+  /** Numero di blocchi con >7 giorni consecutivi per lo stesso utente. */
+  consecutiveViolations: number;
+}
+
 export interface ShiftSwapRequest {
   id: string;
   requester_id: string;

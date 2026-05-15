@@ -101,98 +101,122 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    // Match esatto, oppure è una sotto-rotta
     return pathname === href || pathname.startsWith(href + '/');
   };
+
+  // Lista piatta di tutti gli item → usata nella vista collassata (solo icone)
+  const allItems: MenuItem[] = sections.flatMap((s) => s.items);
 
   return (
     <aside
       className={`${
-        isOpen ? 'w-64' : 'w-20'
-      } shrink-0 bg-white border-r border-gray-200 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30`}
+        isOpen ? 'w-64' : 'w-16'
+      } shrink-0 bg-white border-r border-gray-200 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30 flex flex-col`}
     >
       {/* Logo */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-lg text-white font-bold text-lg">
+      <div className={`${isOpen ? 'p-4' : 'p-3'} border-b border-gray-200 flex items-center justify-center`}>
+        <div className="flex items-center justify-center w-10 h-10 bg-blue-600 rounded-lg text-white font-bold text-sm flex-shrink-0">
           SW
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="p-4 space-y-2">
-        {sections.map((section) => {
-          const expanded = expandedSections[section.key];
-          return (
-            <div key={section.key}>
-              {/* Header di sezione: il titolo è un Link, il chevron è un button separato */}
-              <div className="flex items-center w-full rounded-lg hover:bg-gray-100 transition-colors">
-                <Link
-                  href={section.href}
-                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-l-lg ${
-                    isActive(section.href) ? 'text-blue-700' : 'text-gray-700'
-                  }`}
-                >
-                  <span className={isOpen ? '' : 'hidden'}>{section.label}</span>
-                </Link>
-                {isOpen && (
+      <nav className={`${isOpen ? 'p-3' : 'p-2'} space-y-1 flex-1`}>
+        {isOpen ? (
+          /* Vista espansa: sezioni con label e chevron */
+          sections.map((section) => {
+            const expanded = expandedSections[section.key];
+            return (
+              <div key={section.key}>
+                <div className="flex items-center w-full rounded-lg hover:bg-gray-100 transition-colors">
+                  <Link
+                    href={section.href}
+                    className={`flex-1 px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-l-lg ${
+                      isActive(section.href) ? 'text-blue-700' : 'text-gray-500'
+                    }`}
+                  >
+                    {section.label}
+                  </Link>
                   <button
                     type="button"
                     onClick={(e) => toggleSection(e, section.key)}
                     aria-label={expanded ? 'Comprimi sezione' : 'Espandi sezione'}
-                    className="px-3 py-2 text-gray-500 hover:text-gray-900 rounded-r-lg"
+                    className="px-3 py-2 text-gray-400 hover:text-gray-700 rounded-r-lg"
                   >
                     <svg
-                      className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                      />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
+                </div>
+
+                {expanded && (
+                  <div className="mt-1 space-y-0.5">
+                    {section.items.map((item) => {
+                      const active = isActive(item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                            active
+                              ? 'bg-blue-50 text-blue-700 font-medium'
+                              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="text-base leading-none">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-
-              {/* Voci di sezione */}
-              {expanded && isOpen && (
-                <div className="ml-2 mt-2 space-y-1">
-                  {section.items.map((item) => {
-                    const active = isActive(item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
-                          active
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                        }`}
-                      >
-                        <span>{item.icon}</span>
-                        <span>{item.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })
+        ) : (
+          /* Vista collassata: solo icone centrate con tooltip nativo al hover */
+          <div className="flex flex-col gap-0.5">
+            {allItems.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={item.label}
+                  className={`flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-colors text-lg ${
+                    active
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  {item.icon}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
-      {/* Help Section */}
-      {isOpen && (
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-gray-50">
-          <button className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg text-center">
+      {/* Help / bottom */}
+      <div className={`border-t border-gray-200 bg-gray-50 ${isOpen ? 'p-3' : 'p-2'}`}>
+        {isOpen ? (
+          <button className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg text-center transition-colors">
             💬 Aiuto
           </button>
-        </div>
-      )}
+        ) : (
+          <button
+            title="Aiuto"
+            className="flex items-center justify-center w-10 h-10 mx-auto rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors text-lg"
+          >
+            💬
+          </button>
+        )}
+      </div>
     </aside>
   );
 }

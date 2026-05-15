@@ -97,15 +97,17 @@ export const swapRequestsAPI = {
         );
       }
 
-      // 4. Perform the swap
-      const [{ error: swap1 }, { error: swap2 }] = await Promise.all([
-        supabase.from('shifts').update({ user_id: responderShift.user_id }).eq('id', requesterShift.id),
-        supabase.from('shifts').update({ user_id: requesterShift.user_id }).eq('id', responderShift.id),
-      ]);
+      // 4. Perform the swap atomically via RPC (single UPDATE with CASE)
+      //    Necessario per non violare UNIQUE(user_id, shift_date) quando i due
+      //    turni cadono nello stesso giorno.
+      const { error: swapError } = await supabase.rpc('swap_shift_users', {
+        p_requester_shift_id: requesterShift.id,
+        p_responder_shift_id: responderShift.id,
+      });
 
-      if (swap1 || swap2) {
-        log.error('acceptSwapRequest', 'Errore durante lo swap effettivo', new Error((swap1 || swap2)!.message));
-        throw toAppError(swap1 || swap2, 'Errore durante lo scambio dei turni');
+      if (swapError) {
+        log.error('acceptSwapRequest', 'Errore durante lo swap effettivo', new Error(swapError.message));
+        throw toAppError(swapError, 'Errore durante lo scambio dei turni');
       }
 
       // 5. Mark accepted

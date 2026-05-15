@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { OnCallAssignment } from '@/types';
+import { OnCallAssignment, OnCallDailyAssignment } from '@/types';
 import { formatDate, getWeekStart } from '../utils';
 import { createLogger, toAppError } from '../logger';
 
@@ -144,6 +144,231 @@ export const onCallAPI = {
         seen.add(row.user_id);
         return true;
       });
+    });
+  },
+
+  // ─────────────────────────────────────────────
+  // DAILY ASSIGNMENTS (matrice annuale)
+  // ─────────────────────────────────────────────
+
+  /** Recupera tutte le assegnazioni giornaliere di un anno. */
+  async getYearDailyOnCall(year: number): Promise<OnCallDailyAssignment[]> {
+    return log.withTiming('getYearDailyOnCall', { year }, async () => {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+
+      const { data, error } = await supabase
+        .from('on_call_daily_assignments')
+        .select('*')
+        .gte('assignment_date', startDate)
+        .lte('assignment_date', endDate)
+        .order('assignment_date', { ascending: true });
+
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità annuale');
+      return data || [];
+    });
+  },
+
+  /** Recupera l'assegnazione giornaliera per una data specifica (join con users). */
+  async getDailyOnCallForDate(date: string): Promise<(OnCallDailyAssignment & { user?: any }) | null> {
+    return log.withTiming('getDailyOnCallForDate', { date }, async () => {
+      const { data, error } = await supabase
+        .from('on_call_daily_assignments')
+        .select('*, users:user_id(id, full_name, email)')
+        .eq('assignment_date', date)
+        .maybeSingle();
+
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità del giorno');
+      if (!data) return null;
+      return { ...data, user: data.users };
+    });
+  },
+
+  /**
+   * Genera le assegnazioni giornaliere per un intero anno.
+   * Regole:
+   *  - Blocchi di 7 giorni (lun–dom).
+   *  - Round-robin tra utenti con on_call_available = true.
+   *  - Se l'utente ha ferie (leave_type = 'vacation') per ≥ 4 giorni della settimana, viene saltato.
+   *  - Massimo 7 giorni consecutivi per blocco (garantito dalla struttura a blocchi).
+   *  - Cancella e ricrea le assegnazioni per l'anno specificato.
+   */
+  async generateAnnualOnCall(
+    year: number,
+    userIds: string[],
+  ): Promise<OnCallDailyAssignment[]> {
+    return log.withTiming('generateAnnualOnCall', { year, usersCount: userIds.length }, async () => {
+      if (userIds.length === 0) {
+        log.warn('generateAnnualOnCall', 'Nessun utente disponibile per la rotazione');
+        return [];
+      }
+
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+
+      // 1. Carica tutte le ferie (vacation) per l'anno
+      const { data: vacationShifts, error: vErr } = await supabase
+        .from('shifts')
+        .select('user_id, shift_date')
+        .eq('leave_type', 'vacation')
+        .gte('shift_date', startDate)
+        .lte('shift_date', endDate);
+
+      if (vErr) throw toAppError(vErr, 'Impossibile caricare le ferie per la generazione');
+
+      // Mappa: userId → Set<YYYY-MM-DD>
+      const vacationMap = new Map<string, Set<string>>();
+      for (const s of vacationShifts || []) {
+        if (!vacationMap.has(s.user_id)) vacationMap.set(s.user_id, new Set());
+        vacationMap.get(s.user_id)!.add(s.shift_date);
+      }
+
+      // 2. Costruisci la lista dei blocchi settimanali per l'anno
+      //    Primo lunedì dell'anno (o 1 gen se è lunedì)
+      const firstDay = new Date(year, 0, 1);
+      // Trova il primo lunedì: getDay() 0=dom,1=lun,...,6=sab
+      const dayOfWeek = firstDay.getDay(); // 0=dom
+      // Differenza per arrivare al lunedì precedente (o lo stesso giorno se è lun)
+      const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const firstMonday = new Date(year, 0, 1 + daysToMonday);
+
+      const lastDay = new Date(year, 11, 31);
+
+      const weeks: Array<{ start: Date; end: Date; dates: string[] }> = [];
+      let cursor = new Date(firstMonday);
+
+      while (cursor <= lastDay) {
+        const weekStart = new Date(cursor);
+        const weekDates: string[] = [];
+        for (let d = 0; d < 7; d++) {
+          const dd = new Date(cursor);
+          dd.setDate(dd.getDate() + d);
+          const ds = formatDate(dd);
+          // Includi solo date che appartengono all'anno target
+          if (ds >= startDate && ds <= endDate) {
+            weekDates.push(ds);
+          }
+        }
+        if (weekDates.length > 0) {
+          const weekEnd = new Date(cursor);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          weeks.push({ start: weekStart, end: weekEnd, dates: weekDates });
+        }
+        cursor.setDate(cursor.getDate() + 7);
+      }
+
+      // 3. Elimina le assegnazioni esistenti per l'anno
+      const { error: delErr } = await supabase
+        .from('on_call_daily_assignments')
+        .delete()
+        .gte('assignment_date', startDate)
+        .lte('assignment_date', endDate);
+
+      if (delErr) throw toAppError(delErr, 'Impossibile eliminare le assegnazioni esistenti');
+
+      // 4. Assegna utenti in round-robin, saltando chi è in ferie per ≥ 4 giorni della settimana
+      const rows: Array<{ user_id: string; assignment_date: string }> = [];
+      let userIndex = 0;
+
+      for (const week of weeks) {
+        // Cerca l'utente disponibile a partire dalla posizione corrente
+        let assigned = false;
+        for (let attempt = 0; attempt < userIds.length; attempt++) {
+          const uid = userIds[(userIndex + attempt) % userIds.length];
+          const userVacations = vacationMap.get(uid) ?? new Set<string>();
+          const vacationDaysInWeek = week.dates.filter((d) => userVacations.has(d)).length;
+
+          // Se l'utente ha ferie per ≥ 4 giorni della settimana, salta
+          if (vacationDaysInWeek >= 4) continue;
+
+          // Assegna tutti i giorni della settimana a questo utente
+          for (const date of week.dates) {
+            rows.push({ user_id: uid, assignment_date: date });
+          }
+          userIndex = (userIndex + attempt + 1) % userIds.length;
+          assigned = true;
+          break;
+        }
+
+        // Se nessun utente è disponibile (tutti in ferie), assegna comunque al successivo in lista
+        if (!assigned) {
+          const uid = userIds[userIndex % userIds.length];
+          for (const date of week.dates) {
+            rows.push({ user_id: uid, assignment_date: date });
+          }
+          userIndex = (userIndex + 1) % userIds.length;
+        }
+      }
+
+      // 5. Inserisci in batch
+      const BATCH = 100;
+      const all: OnCallDailyAssignment[] = [];
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const { data, error } = await supabase
+          .from('on_call_daily_assignments')
+          .insert(rows.slice(i, i + BATCH))
+          .select();
+        if (error) throw toAppError(error, 'Errore nell\'inserimento delle assegnazioni');
+        all.push(...(data || []));
+      }
+
+      log.info('generateAnnualOnCall', `Generati ${all.length} giorni di reperibilità per ${year}`);
+      return all;
+    });
+  },
+
+  /** Riassegna un singolo giorno a un nuovo utente. */
+  async reassignDay(date: string, newUserId: string): Promise<OnCallDailyAssignment> {
+    return log.withTiming('reassignDay', { date, newUserId }, async () => {
+      const { data, error } = await supabase
+        .from('on_call_daily_assignments')
+        .upsert(
+          { user_id: newUserId, assignment_date: date },
+          { onConflict: 'assignment_date' },
+        )
+        .select()
+        .single();
+
+      if (error) throw toAppError(error, 'Impossibile riassegnare il giorno di reperibilità');
+      return data;
+    });
+  },
+
+  /**
+   * Scambia le assegnazioni di due intervalli di date tra due utenti.
+   * Utile per swap di blocchi interi (es. settimana A con settimana B).
+   */
+  async swapDayRanges(
+    userId1: string,
+    dates1: string[],
+    userId2: string,
+    dates2: string[],
+  ): Promise<void> {
+    return log.withTiming('swapDayRanges', { userId1, userId2, count1: dates1.length, count2: dates2.length }, async () => {
+      // Aggiorna range 1 → userId2
+      const rows1 = dates1.map((d) => ({ assignment_date: d, user_id: userId2 }));
+      // Aggiorna range 2 → userId1
+      const rows2 = dates2.map((d) => ({ assignment_date: d, user_id: userId1 }));
+
+      const allRows = [...rows1, ...rows2];
+      const { error } = await supabase
+        .from('on_call_daily_assignments')
+        .upsert(allRows, { onConflict: 'assignment_date' });
+
+      if (error) throw toAppError(error, 'Impossibile effettuare lo scambio di reperibilità');
+    });
+  },
+
+  /** Elimina tutte le assegnazioni giornaliere di un anno. */
+  async clearYearDailyOnCall(year: number): Promise<void> {
+    return log.withTiming('clearYearDailyOnCall', { year }, async () => {
+      const { error } = await supabase
+        .from('on_call_daily_assignments')
+        .delete()
+        .gte('assignment_date', `${year}-01-01`)
+        .lte('assignment_date', `${year}-12-31`);
+
+      if (error) throw toAppError(error, 'Impossibile eliminare le assegnazioni annuali');
     });
   },
 };
