@@ -119,12 +119,45 @@ function groupConsecutive(sortedDates: string[]): Block[] {
   return blocks;
 }
 
+// ─── Colori RFC 7986 (CSS named colors) ──────────────────────────────────────
+// Supportati da: Apple Calendar, Thunderbird, Fantastical, ecc.
+// Google Calendar ignora il COLOR per-evento nei feed sottoscritti:
+// usa invece 3 feed separati (?type=office|smart|oncall) da aggiungere
+// come 3 calendari distinti a cui assegnare colori in GCal.
+const TYPE_META = {
+  office: {
+    color: 'steelblue',            // blu ufficio
+    calName: '🏢 Ufficio',
+    desc: 'Giorni in ufficio — Via Filippo Caruso 23, Roma',
+  },
+  smart: {
+    color: 'mediumseagreen',       // verde smart
+    calName: '🏠 Smart Working',
+    desc: 'Giorni in smart working',
+  },
+  oncall: {
+    color: 'tomato',               // rosso reperibilità
+    calName: '📞 Reperibilità',
+    desc: 'Turni di reperibilità (18:00 → 09:00)',
+  },
+  all: {
+    color: 'steelblue',
+    calName: 'SmartWork Schedule',
+    desc: 'Turni office/smart e reperibilità',
+  },
+} as const;
+
+type FeedType = keyof typeof TYPE_META;
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const uid = req.nextUrl.searchParams.get('uid');
   if (!uid || uid.length < 10) {
     return new NextResponse('uid mancante o non valido', { status: 400 });
   }
+
+  const typeParam = req.nextUrl.searchParams.get('type') ?? 'all';
+  const feedType: FeedType = (typeParam in TYPE_META ? typeParam : 'all') as FeedType;
 
   const db = getServerSupabaseClient();
 
@@ -164,59 +197,68 @@ export async function GET(req: NextRequest) {
 
   const stamp = nowUtc();
   const events: string[] = [];
+  const meta = TYPE_META[feedType];
 
-  // ── Turni: ufficio e smart ─────────────────────────────────────────────────
-  for (const shift of shifts ?? []) {
-    // Salta giorni con assenza (ferie/permessi/malattia)
-    if (shift.leave_type) continue;
-
-    const d = shift.shift_date;
-
-    if (shift.shift_type === 'office') {
+  // ── Ufficio ────────────────────────────────────────────────────────────────
+  if (feedType === 'all' || feedType === 'office') {
+    for (const shift of shifts ?? []) {
+      if (shift.leave_type) continue;
+      if (shift.shift_type !== 'office') continue;
+      const d = shift.shift_date;
       events.push(vevent({
         'DTSTART;TZID=Europe/Rome': `${isoToYmd(d)}T090000`,
         'DTEND;TZID=Europe/Rome':   `${isoToYmd(d)}T090500`,
-        'DTSTAMP':                  stamp,
-        'UID':                      `office-${d}-${uid}@octoshift`,
-        'SUMMARY':                  '🏢 Ufficio',
-        'LOCATION':                 OFFICE_LOCATION,
-        'CATEGORIES':               'SMARTWORK',
-        'COLOR':                    'blue',
-      }));
-    } else if (shift.shift_type === 'smartwork') {
-      // All-day: DTEND è il giorno successivo (convenzione RFC 5545)
-      events.push(vevent({
-        'DTSTART;VALUE=DATE': isoToYmd(d),
-        'DTEND;VALUE=DATE':   isoToYmd(addDays(d, 1)),
-        'DTSTAMP':            stamp,
-        'UID':                `smart-${d}-${uid}@octoshift`,
-        'SUMMARY':            '🏠 Smart Working',
-        'CATEGORIES':         'SMARTWORK',
-        'COLOR':              'green',
+        'DTSTAMP':   stamp,
+        'UID':       `office-${d}-${uid}@octoshift`,
+        'SUMMARY':   '🏢 Ufficio',
+        'LOCATION':  OFFICE_LOCATION,
+        'CATEGORIES':'OFFICE',
+        'COLOR':     TYPE_META.office.color,   // steelblue — Apple Cal / Fantastical
       }));
     }
   }
 
-  // ── Reperibilità: 18:00 primo giorno → 09:00 giorno dopo l'ultimo ──────────
-  const onCallSortedDates = (onCallDays ?? []).map(r => r.assignment_date).sort();
-  const onCallBlocks = groupConsecutive(onCallSortedDates);
+  // ── Smart Working ──────────────────────────────────────────────────────────
+  if (feedType === 'all' || feedType === 'smart') {
+    for (const shift of shifts ?? []) {
+      if (shift.leave_type) continue;
+      if (shift.shift_type !== 'smartwork') continue;
+      const d = shift.shift_date;
+      events.push(vevent({
+        'DTSTART;VALUE=DATE': isoToYmd(d),
+        'DTEND;VALUE=DATE':   isoToYmd(addDays(d, 1)),
+        'DTSTAMP':   stamp,
+        'UID':       `smart-${d}-${uid}@octoshift`,
+        'SUMMARY':   '🏠 Smart Working',
+        'CATEGORIES':'SMART',
+        'COLOR':     TYPE_META.smart.color,    // mediumseagreen
+      }));
+    }
+  }
 
-  for (const block of onCallBlocks) {
-    const dtEnd = addDays(block.endDate, 1); // giorno dopo l'ultimo
-    events.push(vevent({
-      'DTSTART;TZID=Europe/Rome': `${isoToYmd(block.startDate)}T180000`,
-      'DTEND;TZID=Europe/Rome':   `${isoToYmd(dtEnd)}T090000`,
-      'DTSTAMP':                  stamp,
-      'UID':                      `oncall-${block.startDate}-${block.endDate}-${uid}@octoshift`,
-      'SUMMARY':                  '📞 Reperibilità',
-      'DESCRIPTION':              `Reperibilità ${block.startDate === block.endDate ? block.startDate : `${block.startDate} → ${block.endDate}`}`,
-      'CATEGORIES':               'REPERIBILITA',
-      'COLOR':                    'red',
-    }));
+  // ── Reperibilità: 18:00 → 09:00 del giorno successivo ────────────────────
+  if (feedType === 'all' || feedType === 'oncall') {
+    const onCallSortedDates = (onCallDays ?? []).map(r => r.assignment_date).sort();
+    const onCallBlocks = groupConsecutive(onCallSortedDates);
+    for (const block of onCallBlocks) {
+      const dtEnd = addDays(block.endDate, 1);
+      events.push(vevent({
+        'DTSTART;TZID=Europe/Rome': `${isoToYmd(block.startDate)}T180000`,
+        'DTEND;TZID=Europe/Rome':   `${isoToYmd(dtEnd)}T090000`,
+        'DTSTAMP':   stamp,
+        'UID':       `oncall-${block.startDate}-${block.endDate}-${uid}@octoshift`,
+        'SUMMARY':   '📞 Reperibilità',
+        'DESCRIPTION': `Reperibilità ${block.startDate === block.endDate ? block.startDate : `${block.startDate} → ${block.endDate}`}`,
+        'CATEGORIES':'ONCALL',
+        'COLOR':     TYPE_META.oncall.color,   // tomato
+      }));
+    }
   }
 
   // ── Assembla il calendario ─────────────────────────────────────────────────
-  const calName = `SmartWork — ${user.full_name}`;
+  const calName = feedType === 'all'
+    ? `${meta.calName} — ${user.full_name}`
+    : `${meta.calName} — ${user.full_name}`;
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -225,7 +267,8 @@ export async function GET(req: NextRequest) {
     'METHOD:PUBLISH',
     fold(`X-WR-CALNAME:${calName}`),
     `X-WR-TIMEZONE:${TZ}`,
-    'X-WR-CALDESC:Turni office/smart e reperibilità generati da OctoShift',
+    fold(`X-WR-CALDESC:${meta.desc} — OctoShift`),
+    fold(`X-APPLE-CALENDAR-COLOR:${meta.color}`), // Apple Calendar: colore calendario
     'REFRESH-INTERVAL;VALUE=DURATION:PT6H',
     `X-PUBLISHED-TTL:PT6H`,
     VTIMEZONE_ROME,
@@ -236,7 +279,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(ics, {
     headers: {
       'Content-Type':        'text/calendar; charset=utf-8',
-      'Content-Disposition': `inline; filename="octoshift-${user.full_name.replace(/\s+/g, '-').toLowerCase()}.ics"`,
+      'Content-Disposition': `inline; filename="octoshift-${feedType}-${user.full_name.replace(/\s+/g, '-').toLowerCase()}.ics"`,
       'Cache-Control':       'no-cache, no-store, must-revalidate',
       'Access-Control-Allow-Origin': '*', // necessario per Google Calendar
     },

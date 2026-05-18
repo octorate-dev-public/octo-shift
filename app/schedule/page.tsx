@@ -11,8 +11,9 @@ const ITALIAN_MONTHS = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
 ];
-const ITALIAN_DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
-const ITALIAN_DAYS_FULL = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
+// Lunedì-prima (standard europeo/ISO)
+const ITALIAN_DAYS_SHORT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+const ITALIAN_DAYS_FULL = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
 
 function getDaysInMonth(year: number, month: number): Date[] {
   const days: Date[] = [];
@@ -95,20 +96,26 @@ export default function SchedulePage() {
 
   const onCallSet = new Set(onCallDates);
 
-  const icsUrl = userId
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/ics?uid=${userId}`
-    : '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const icsFeeds = userId ? [
+    { type: 'office',  label: '🏢 Ufficio',        color: '#4682b4', hint: 'blu'   },
+    { type: 'smart',   label: '🏠 Smart Working',   color: '#3cb371', hint: 'verde' },
+    { type: 'oncall',  label: '📞 Reperibilità',    color: '#ff6347', hint: 'rosso' },
+  ] : [];
 
-  const handleCopyIcsLink = () => {
-    if (!icsUrl) return;
-    navigator.clipboard.writeText(icsUrl).then(() => {
+  const icsUrl = (type: string) => `${origin}/api/ics?uid=${userId}&type=${type}`;
+
+  const handleCopyIcsLink = (type: string) => {
+    navigator.clipboard.writeText(icsUrl(type)).then(() => {
       setIcsLinkCopied(true);
       setTimeout(() => setIcsLinkCopied(false), 2500);
     });
   };
 
   const days = getDaysInMonth(year, month);
-  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  // Offset lunedì-prima: JS getDay() → 0=Dom,1=Lun,...,6=Sab
+  // Formula (dow + 6) % 7 → 0=Lun, 1=Mar, ..., 6=Dom
+  const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7;
 
   // Summary counts
   const counts = shifts.reduce<Record<string, number>>((acc, s) => {
@@ -124,27 +131,39 @@ export default function SchedulePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Il Mio Schedule</h1>
           <p className="text-gray-600 mt-1">Visualizza i tuoi turni del mese</p>
-          {/* Pulsante ICS */}
+          {/* Feed ICS per Google Calendar */}
           {userId && (
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              <a
-                href={icsUrl}
-                download
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition shadow-sm"
-                title="Scarica il file ICS da importare su Google Calendar"
-              >
-                📥 Scarica .ics
-              </a>
-              <button
-                onClick={handleCopyIcsLink}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition shadow-sm"
-                title="Copia il link da incollare in Google Calendar → Aggiungi da URL"
-              >
-                {icsLinkCopied ? '✓ Link copiato!' : '🔗 Copia link Google Calendar'}
-              </button>
-              <span className="text-xs text-gray-400">
-                In Google Calendar: + → Da URL → incolla il link
-              </span>
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Sincronizza con Google Calendar
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {icsFeeds.map(feed => (
+                  <div key={feed.type}
+                    className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                    {/* Banda colore */}
+                    <div className="w-1.5 self-stretch" style={{ backgroundColor: feed.color }} />
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                      <span className="text-xs font-medium text-gray-700">{feed.label}</span>
+                      <a href={icsUrl(feed.type)} download
+                        className="text-gray-400 hover:text-gray-700 transition" title={`Scarica ${feed.label}.ics`}>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </a>
+                      <button onClick={() => handleCopyIcsLink(feed.type)}
+                        className="text-gray-400 hover:text-gray-700 transition" title="Copia URL per Google Calendar">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400">
+                {icsLinkCopied ? '✓ Link copiato!' : 'Google Calendar: + → Da URL → incolla · Il colore si imposta in GCal dopo l\'aggiunta'}
+              </p>
             </div>
           )}
         </div>
@@ -228,7 +247,6 @@ export default function SchedulePage() {
                 const shift = shiftByDate.get(dateStr);
                 const isToday = dateStr === todayStr;
                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                const dayCol = (date.getDay() + firstDayOfWeek) % 7;
 
                 return (
                   <div
