@@ -90,14 +90,29 @@ export const schedulingAPI = {
       log.info('generateMonthlySchedule', `Caricate ${allPreferences.length} preferenze utente`);
 
       // Scoring weights for equity-first office assignment:
-      //   equity term: each smart day above average is worth EQUITY_WEIGHT priority points
-      //   preference term: office preference worth ~2 smart-days of priority over home
-      //   meeting term: meeting day worth ~1.5 smart-days of priority
-      const EQUITY_WEIGHT = 2;
-      const MEETING_BONUS = 3;
-      const PREF_OFFICE_SCORE = 4;
-      const PREF_INDIFF_SCORE = 2;
+      //   equity term:    ogni giorno smart sopra la media vale EQUITY_WEIGHT punti di priorità ufficio
+      //   preference:     preferenza ufficio vale ~2 giorni smart di priorità
+      //   meeting bonus:  riunione di team aggiunge priorità ufficio
+      //   stable bonus:   utenti 'stable' ricevono ±STABLE_WEEKDAY_BONUS in base al giorno della settimana
+      //                   già assegnato (ripete lo stesso schema Mon/Wed/Fri ogni settimana)
+      //   random jitter:  utenti 'random' ricevono un piccolo rumore casuale per spezzare i pareggi
+      const EQUITY_WEIGHT       = 2;
+      const MEETING_BONUS       = 3;
+      const PREF_OFFICE_SCORE   = 4;
+      const PREF_INDIFF_SCORE   = 2;
       // home preference = 0 (no office bonus)
+      const STABLE_WEEKDAY_BONUS = 1.5; // ≈ 0.75 giorni smart: crea coerenza senza battere l'equità
+      const RANDOM_JITTER        = 0.4; // ±0.2: rumore di pareggio per gli utenti 'random'
+
+      // Traccia i pattern weekday intra-mese per gli utenti 'stable'.
+      // Se lunedì hanno avuto ufficio nelle settimane precedenti, oggi lunedì
+      // ricevono un bonus ufficio; se hanno avuto smart, ricevono un malus.
+      const userOfficeWeekdays = new Map<string, Set<number>>();
+      const userSmartWeekdays  = new Map<string, Set<number>>();
+      sortedUsers.forEach((u) => {
+        userOfficeWeekdays.set(u.id, new Set());
+        userSmartWeekdays.set(u.id, new Set());
+      });
 
       const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const monthDays = getMonthDays(year, month - 1); // getMonthDays expects 0-based month
@@ -224,7 +239,25 @@ export const schedulingAPI = {
           const pref = getPref(user.id);
           const prefScore = pref === 'office' ? PREF_OFFICE_SCORE : pref === 'indifferent' ? PREF_INDIFF_SCORE : 0;
           const seniorityTiebreak = -(seniorityIndex.get(user.id) ?? 0) * 0.01;
-          return equityScore + meetingBonus + prefScore + seniorityTiebreak;
+
+          // ── schedule_style bonus ────────────────────────────────────────────
+          // stable: se questo giorno della settimana è già stato assegnato in
+          //   questo mese, ripeti lo stesso tipo (ufficio=+bonus, smart=-bonus).
+          //   Se non ci sono dati ancora (prima settimana), nessun effetto.
+          // random: piccolo jitter casuale per rompere i pareggi in modo imprevedibile.
+          let styleScore = 0;
+          if (user.schedule_style === 'stable') {
+            if (userOfficeWeekdays.get(user.id)?.has(dayOfWeek)) {
+              styleScore = +STABLE_WEEKDAY_BONUS; // ha già avuto ufficio questo giorno → preferisce ufficio
+            } else if (userSmartWeekdays.get(user.id)?.has(dayOfWeek)) {
+              styleScore = -STABLE_WEEKDAY_BONUS; // ha già avuto smart questo giorno → preferisce smart
+            }
+          } else {
+            // random: jitter ±(RANDOM_JITTER/2)
+            styleScore = (Math.random() - 0.5) * RANDOM_JITTER;
+          }
+
+          return equityScore + meetingBonus + prefScore + styleScore + seniorityTiebreak;
         };
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));
@@ -249,8 +282,15 @@ export const schedulingAPI = {
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
           if (type === 'office') {
             officeCount++;
+            // Traccia weekday per utenti 'stable' (usato nelle settimane successive)
+            if (user.schedule_style === 'stable') {
+              userOfficeWeekdays.get(user.id)?.add(dayOfWeek);
+            }
           } else {
             userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
+            if (user.schedule_style === 'stable') {
+              userSmartWeekdays.get(user.id)?.add(dayOfWeek);
+            }
           }
         }
       }

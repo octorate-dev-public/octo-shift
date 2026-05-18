@@ -15,6 +15,7 @@ export interface User {
   is_active: boolean;
   renounce_smart: boolean;    // true = rinuncia volontaria ai giorni smart (escluso dall'equità)
   on_call_available: boolean; // true = disponibile alla reperibilità
+  schedule_style: 'stable' | 'random'; // preferenza distribuzione smart: stesso giorno/settimana vs variata
   created_at: string;
   updated_at: string;
 }

@@ -15,6 +15,7 @@ interface UserFormState {
   seniorityDate: string;
   teamIds: string[];
   onCallAvailable: boolean;
+  scheduleStyle: 'stable' | 'random';
 }
 
 const emptyForm = (): UserFormState => ({
@@ -25,6 +26,7 @@ const emptyForm = (): UserFormState => ({
   seniorityDate: '',
   teamIds: [],
   onCallAvailable: true,
+  scheduleStyle: 'random',
 });
 
 function generateRandomPassword(): string {
@@ -91,6 +93,7 @@ export default function UsersPage() {
       seniorityDate: user.seniority_date,
       teamIds: user.team_ids ?? [],
       onCallAvailable: user.on_call_available ?? true,
+      scheduleStyle: user.schedule_style ?? 'random',
     });
     setShowForm(true);
     setShowPassword(false);
@@ -145,6 +148,7 @@ export default function UsersPage() {
           seniorityDate: form.seniorityDate,
           teamIds: form.teamIds,
           onCallAvailable: form.onCallAvailable,
+          scheduleStyle: form.scheduleStyle,
         });
       } else {
         await api.post('/api/users', {
@@ -369,6 +373,37 @@ export default function UsersPage() {
                 </label>
               </div>
 
+              {/* Stile scheduling smart/ufficio */}
+              <div className="md:col-span-2">
+                <p className="text-sm font-medium text-gray-700 mb-2">Preferenza distribuzione Smart</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Indica se il dipendente preferisce che i giorni smart siano sempre gli stessi della settimana,
+                  oppure variati. L&apos;equità rimane comunque il criterio primario dell&apos;algoritmo.
+                </p>
+                <div className="flex gap-2">
+                  {([
+                    { value: 'stable', label: '📌 Stabile', desc: 'Stessi giorni ogni settimana' },
+                    { value: 'random', label: '🔀 Variato', desc: 'Distribuzione diversa ogni settimana' },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setForm({ ...form, scheduleStyle: opt.value })}
+                      className={`flex-1 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                        form.scheduleStyle === opt.value
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                      }`}
+                    >
+                      <p className={`text-sm font-semibold ${form.scheduleStyle === opt.value ? 'text-blue-700' : 'text-gray-700'}`}>
+                        {opt.label}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Buttons */}
               <div className="md:col-span-2 flex gap-3 pt-2">
                 <button
@@ -430,6 +465,9 @@ export default function UsersPage() {
                               <div>
                                 <p className="text-sm font-medium text-gray-900">{user.full_name}</p>
                                 <p className="text-xs text-gray-500">{user.email}</p>
+                                <span className="text-[10px] text-gray-400 font-medium" title={user.schedule_style === 'stable' ? 'Distribuzione stabile: stessi giorni ogni settimana' : 'Distribuzione variata'}>
+                                  {user.schedule_style === 'stable' ? '📌 Stabile' : '🔀 Variato'}
+                                </span>
                                 {user.on_call_available === false && (
                                   <span className="text-[10px] text-amber-600 font-medium">Non in rotazione</span>
                                 )}
