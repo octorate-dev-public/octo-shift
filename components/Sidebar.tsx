@@ -118,120 +118,106 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
   const allItems: MenuItem[] = sections.flatMap((s) => s.items);
 
-  const activeItemStyle: React.CSSProperties = {
-    background: 'rgba(99,102,241,0.22)',
-    color: '#c7d2fe',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 16px rgba(99,102,241,0.12)',
-  };
-
-  const inactiveItemStyle: React.CSSProperties = {
-    color: 'rgba(148,163,184,0.7)',
-  };
+  // ── Colori sidebar chiara (iOS 26 / macOS style) ──
+  const ACCENT = '#5B5BD6';
+  const ACCENT_BG = '#EBEBFF';
+  const ACCENT_TEXT = '#5B5BD6';
 
   return (
     <aside
-      className={`${isOpen ? 'w-64' : 'w-16'} shrink-0 h-screen overflow-y-auto transition-all duration-[280ms] cubic-bezier(0.4,0,0.2,1) sticky top-0 z-30 flex flex-col`}
+      className={`${isOpen ? 'w-60' : 'w-14'} shrink-0 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30 flex flex-col`}
       style={{
-        /* Liquid glass dark — il mesh del body è visibile attraverso il blur */
-        background: 'rgba(6, 8, 24, 0.78)',
-        backdropFilter: 'blur(56px) saturate(180%) brightness(0.85)',
-        WebkitBackdropFilter: 'blur(56px) saturate(180%) brightness(0.85)',
-        borderRight: '0.5px solid rgba(255,255,255,0.08)',
-        /* Specular highlight sul bordo sinistro */
-        boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.04), 4px 0 40px rgba(0,0,0,0.4)',
+        background: 'rgba(252,252,250,0.88)',
+        backdropFilter: 'blur(24px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+        borderRight: '1px solid rgba(0,0,0,0.07)',
+        boxShadow: '2px 0 12px rgba(0,0,0,0.04)',
       }}
     >
       {/* ── Logo ── */}
-      <div
-        className={`${isOpen ? 'px-4 py-4' : 'px-2 py-3'} flex items-center ${isOpen ? 'gap-3' : 'justify-center'} flex-shrink-0`}
-        style={{ borderBottom: '0.5px solid rgba(255,255,255,0.07)' }}
-      >
-        <div
-          style={{
-            width: 36, height: 36, borderRadius: 12, overflow: 'hidden', flexShrink: 0,
-            boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 4px 16px rgba(0,0,0,0.4)',
-          }}
-        >
-          <Image
-            src="/project_icon.png"
-            alt="Logo"
-            width={36}
-            height={36}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            priority
-          />
+      <div style={{
+        padding: isOpen ? '16px 16px 12px' : '12px 8px',
+        display: 'flex', alignItems: 'center',
+        gap: isOpen ? 10 : 0,
+        justifyContent: isOpen ? 'flex-start' : 'center',
+        borderBottom: '1px solid rgba(0,0,0,0.06)',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 9, overflow: 'hidden', flexShrink: 0,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)',
+        }}>
+          <Image src="/project_icon.png" alt="Logo" width={32} height={32}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }} priority />
         </div>
         {isOpen && (
           <div>
-            <p style={{ fontWeight: 700, fontSize: 14, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-              SmartWork
-            </p>
-            <p style={{ fontSize: 10.5, fontWeight: 500, color: 'rgba(148,163,184,0.6)', letterSpacing: '0.03em' }}>
-              Scheduler
-            </p>
+            <p style={{ fontWeight: 700, fontSize: 13.5, color: '#111', letterSpacing: '-0.02em', lineHeight: 1.1 }}>SmartWork</p>
+            <p style={{ fontSize: 10.5, color: '#9CA3AF', fontWeight: 500, letterSpacing: '0.01em' }}>Scheduler</p>
           </div>
         )}
       </div>
 
       {/* ── Navigation ── */}
-      <nav className={`${isOpen ? 'p-3' : 'p-2'} flex-1 space-y-0.5 overflow-y-auto`}>
+      <nav style={{ padding: isOpen ? '8px 8px' : '8px 6px', flex: 1, overflowY: 'auto' }}>
         {isOpen ? (
           sections.map((section) => {
             const expanded = expandedSections[section.key];
             return (
-              <div key={section.key} className="mb-1">
-                {/* Section header */}
-                <div className="flex items-center justify-between px-2 pt-3 pb-1">
-                  <a
-                    href={section.href}
-                    style={{ flex: 1, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'rgba(100,116,139,0.65)', textDecoration: 'none', transition: 'color 0.15s' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.65)'; }}
+              <div key={section.key} style={{ marginBottom: 4 }}>
+                {/* Section label */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 8px 4px' }}>
+                  <a href={section.href} style={{
+                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                    letterSpacing: '0.10em', color: '#B0B0B0',
+                    textDecoration: 'none', transition: 'color 0.12s',
+                  }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = ACCENT; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#B0B0B0'; }}
+                  >{section.label}</a>
+                  <button type="button" onClick={(e) => toggleSection(e, section.key)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#C0C0C0', transition: 'color 0.12s' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#555'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#C0C0C0'; }}
                   >
-                    {section.label}
-                  </a>
-                  <button
-                    type="button"
-                    onClick={(e) => toggleSection(e, section.key)}
-                    aria-label={expanded ? 'Comprimi' : 'Espandi'}
-                    className="p-0.5 rounded transition-colors"
-                    style={{ color: 'rgba(100,116,139,0.7)' }}
-                  >
-                    <svg
-                      className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
+                    <svg style={{ width: 12, height: 12, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
                 </div>
 
-                {/* Items */}
                 {expanded && (
-                  <div className="space-y-0.5">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {section.items.map((item) => {
                       const active = isActive(item.href);
                       return (
-                        <a
-                          key={item.href}
-                          href={item.href}
-                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150"
-                          style={active ? activeItemStyle : inactiveItemStyle}
-                          onMouseEnter={(e) => {
+                        <a key={item.href} href={item.href}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '6px 10px', borderRadius: 8,
+                            fontSize: 13.5, fontWeight: active ? 600 : 450,
+                            letterSpacing: '-0.01em',
+                            background: active ? ACCENT_BG : 'transparent',
+                            color: active ? ACCENT_TEXT : '#4B5563',
+                            textDecoration: 'none',
+                            transition: 'background 0.12s, color 0.12s',
+                          }}
+                          onMouseEnter={e => {
                             if (!active) {
-                              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
-                              (e.currentTarget as HTMLElement).style.color = 'rgba(226,232,240,1)';
+                              (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)';
+                              (e.currentTarget as HTMLElement).style.color = '#111';
                             }
                           }}
-                          onMouseLeave={(e) => {
+                          onMouseLeave={e => {
                             if (!active) {
-                              (e.currentTarget as HTMLElement).style.background = '';
-                              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,0.85)';
+                              (e.currentTarget as HTMLElement).style.background = 'transparent';
+                              (e.currentTarget as HTMLElement).style.color = '#4B5563';
                             }
                           }}
                         >
-                          <span className="text-base leading-none w-5 text-center flex-shrink-0">{item.icon}</span>
-                          <span className="truncate">{item.label}</span>
+                          <span style={{ fontSize: 14, lineHeight: 1, width: 18, textAlign: 'center', flexShrink: 0 }}>{item.icon}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
                         </a>
                       );
                     })}
@@ -241,32 +227,22 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
             );
           })
         ) : (
-          /* ── Vista collassata: icone centrate ── */
-          <div className="flex flex-col gap-0.5 pt-1">
+          /* ── Collassata: solo icone ── */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 4 }}>
             {allItems.map((item) => {
               const active = isActive(item.href);
               return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  title={item.label}
-                  className="flex items-center justify-center w-10 h-10 mx-auto rounded-xl text-lg transition-all duration-150"
-                  style={active
-                    ? { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc' }
-                    : { color: 'rgba(148,163,184,0.7)' }
-                  }
-                  onMouseEnter={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)';
-                      (e.currentTarget as HTMLElement).style.color = 'rgba(226,232,240,1)';
-                    }
+                <a key={item.href} href={item.href} title={item.label}
+                  style={{
+                    width: 36, height: 36, borderRadius: 9,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 16, margin: '0 auto',
+                    background: active ? ACCENT_BG : 'transparent',
+                    transition: 'background 0.12s',
+                    textDecoration: 'none',
                   }}
-                  onMouseLeave={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLElement).style.background = '';
-                      (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,0.7)';
-                    }
-                  }}
+                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.05)'; }}
+                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
                   {item.icon}
                 </a>
@@ -277,42 +253,26 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
       </nav>
 
       {/* ── Bottom ── */}
-      <div
-        className={`flex-shrink-0 ${isOpen ? 'p-3' : 'p-2'}`}
-        style={{ borderTop: '0.5px solid rgba(255,255,255,0.07)' }}
-      >
-        {isOpen ? (
-          <button
-            className="w-full px-3 py-2 text-sm rounded-xl text-center transition-all duration-150"
-            style={{ color: 'rgba(100,116,139,0.8)' }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)';
-              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,1)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.background = '';
-              (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.8)';
-            }}
-          >
-            💬 Aiuto
-          </button>
-        ) : (
-          <button
-            title="Aiuto"
-            className="flex items-center justify-center w-10 h-10 mx-auto rounded-xl text-lg transition-all duration-150"
-            style={{ color: 'rgba(100,116,139,0.7)' }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
-              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,1)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.background = '';
-              (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.7)';
-            }}
-          >
-            💬
-          </button>
-        )}
+      <div style={{
+        borderTop: '1px solid rgba(0,0,0,0.06)',
+        padding: isOpen ? '8px' : '6px',
+        flexShrink: 0,
+      }}>
+        <button style={{
+          width: '100%', padding: isOpen ? '6px 10px' : '8px',
+          borderRadius: 8, border: 'none', cursor: 'pointer',
+          background: 'transparent', color: '#9CA3AF',
+          fontSize: 12, fontWeight: 500,
+          display: 'flex', alignItems: 'center',
+          justifyContent: isOpen ? 'flex-start' : 'center', gap: 6,
+          transition: 'background 0.12s, color 0.12s',
+        }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)'; (e.currentTarget as HTMLElement).style.color = '#555'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#9CA3AF'; }}
+        >
+          <span style={{ fontSize: 14 }}>💬</span>
+          {isOpen && <span>Aiuto</span>}
+        </button>
       </div>
     </aside>
   );

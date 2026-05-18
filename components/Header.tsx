@@ -20,95 +20,73 @@ export default function Header({ userName, userRole, onMenuClick, onLogout }: He
 
   return (
     <header
-      className="shrink-0 z-20 h-14 px-4 flex items-center justify-between"
       style={{
-        background: 'rgba(255, 255, 255, 0.055)',
-        backdropFilter: 'blur(48px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(48px) saturate(160%)',
-        borderBottom: '0.5px solid rgba(255, 255, 255, 0.10)',
-        boxShadow: '0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.15)',
+        height: 52,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 16px',
+        background: 'rgba(245,245,240,0.85)',
+        backdropFilter: 'blur(20px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(160%)',
+        borderBottom: '1px solid rgba(0,0,0,0.07)',
+        flexShrink: 0,
+        zIndex: 20,
       }}
     >
-      {/* Hamburger */}
+      {/* Toggle sidebar */}
       <button
         onClick={onMenuClick}
         aria-label="Toggle menu"
         style={{
-          width: 36, height: 36, borderRadius: 10, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(255,255,255,0.07)',
-          border: '0.5px solid rgba(255,255,255,0.1)',
-          color: 'rgba(255,255,255,0.7)',
-          cursor: 'pointer', transition: 'all 0.2s ease',
+          width: 32, height: 32, borderRadius: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 'none',
+          color: '#6B7280', cursor: 'pointer',
+          transition: 'background 0.12s, color 0.12s',
         }}
-        onMouseEnter={(e) => {
-          const el = e.currentTarget;
-          el.style.background = 'rgba(99,102,241,0.25)';
-          el.style.borderColor = 'rgba(99,102,241,0.4)';
-          el.style.color = '#a5b4fc';
-        }}
-        onMouseLeave={(e) => {
-          const el = e.currentTarget;
-          el.style.background = 'rgba(255,255,255,0.07)';
-          el.style.borderColor = 'rgba(255,255,255,0.1)';
-          el.style.color = 'rgba(255,255,255,0.7)';
-        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.05)'; (e.currentTarget as HTMLElement).style.color = '#111'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#6B7280'; }}
       >
-        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" />
         </svg>
       </button>
 
       {/* Destra */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 
         {/* Badge ruolo */}
-        <span
-          style={{
-            display: 'inline-flex', alignItems: 'center',
-            padding: '3px 10px', borderRadius: 999,
-            fontSize: 11, fontWeight: 600, letterSpacing: '0.03em',
-            background: userRole === 'admin'
-              ? 'rgba(99,102,241,0.2)'
-              : 'rgba(16,185,129,0.2)',
-            color: userRole === 'admin' ? '#a5b4fc' : '#6ee7b7',
-            border: `0.5px solid ${userRole === 'admin' ? 'rgba(99,102,241,0.35)' : 'rgba(16,185,129,0.35)'}`,
-          }}
-        >
-          {userRole === 'admin' ? '⚡ Admin' : '● Utente'}
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 99,
+          background: userRole === 'admin' ? '#EBEBFF' : '#ECFDF5',
+          color: userRole === 'admin' ? '#5B5BD6' : '#059669',
+          letterSpacing: '0.01em',
+        }}>
+          {userRole === 'admin' ? 'Admin' : 'Utente'}
         </span>
 
-        {/* User chip */}
-        <div
-          style={{
-            display: 'flex', alignItems: 'center', gap: 9,
-            padding: '5px 12px 5px 5px', borderRadius: 999,
-            background: 'rgba(255,255,255,0.07)',
-            border: '0.5px solid rgba(255,255,255,0.12)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
-          }}
-        >
-          {/* Avatar */}
-          <div
-            style={{
-              width: 28, height: 28, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700, color: 'white',
-              background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
-              boxShadow: '0 0 12px rgba(99,102,241,0.5)',
-              flexShrink: 0,
-            }}
-          >
+        {/* Chip utente */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '4px 10px 4px 4px', borderRadius: 99,
+          background: 'rgba(255,255,255,0.75)',
+          border: '1px solid rgba(0,0,0,0.08)',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        }}>
+          <div style={{
+            width: 24, height: 24, borderRadius: '50%',
+            background: '#5B5BD6',
+            color: '#fff', fontSize: 10, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
             {initials}
           </div>
-          <span
-            className="hidden sm:block"
-            style={{
-              fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em',
-              color: 'rgba(255,255,255,0.85)',
-              maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}
-          >
+          <span style={{
+            fontSize: 13, fontWeight: 500, color: '#1A1A1A',
+            maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }} className="hidden sm:block">
             {userName}
           </span>
         </div>
@@ -116,29 +94,19 @@ export default function Header({ userName, userRole, onMenuClick, onLogout }: He
         {/* Logout */}
         <button
           onClick={onLogout}
-          aria-label="Esci"
           title="Esci"
           style={{
-            width: 36, height: 36, borderRadius: 10,
+            width: 30, height: 30, borderRadius: 8,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'transparent', border: 'none',
-            color: 'rgba(255,255,255,0.35)', cursor: 'pointer',
-            transition: 'all 0.2s ease',
+            color: '#9CA3AF', cursor: 'pointer',
+            transition: 'background 0.12s, color 0.12s',
           }}
-          onMouseEnter={(e) => {
-            const el = e.currentTarget;
-            el.style.background = 'rgba(244,63,94,0.18)';
-            el.style.color = '#fda4af';
-          }}
-          onMouseLeave={(e) => {
-            const el = e.currentTarget;
-            el.style.background = 'transparent';
-            el.style.color = 'rgba(255,255,255,0.35)';
-          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLElement).style.color = '#DC2626'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#9CA3AF'; }}
         >
-          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round"
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
       </div>

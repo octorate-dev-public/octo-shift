@@ -21,10 +21,7 @@ export default function Layout({
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar — dark glass, sempre sticky */}
       <Sidebar isOpen={sidebarOpen} userRole={userRole} />
-
-      {/* Area principale — isolate per stacking context */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 isolate">
         <Header
           userName={userName}
@@ -32,8 +29,6 @@ export default function Layout({
           onMenuClick={() => setSidebarOpen((o) => !o)}
           onLogout={onLogout}
         />
-
-        {/* Contenuto pagina — scroll interno */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-5 md:p-6">
           {children}
         </main>
