@@ -37,6 +37,14 @@ export default function AdminSettingsPage() {
   const [timezone, setTimezone] = useState('Europe/Rome');
   const [workDays, setWorkDays] = useState<string[]>(DEFAULT_WORK_DAYS);
 
+  // KEROS
+  const [kerosUsername, setKerosUsername] = useState('');
+  const [kerosPassword, setKerosPassword] = useState('');
+  const [kerosPasswordSet, setKerosPasswordSet] = useState(false);
+  const [kerosShowPassword, setKerosShowPassword] = useState(false);
+  const [kerosFeedback, setKerosFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+  const [kerosTestFeedback, setKerosTestFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+
   const [capacityFeedback, setCapacityFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [onCallFeedback, setOnCallFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [timezoneFeedback, setTimezoneFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
@@ -66,6 +74,10 @@ export default function AdminSettingsPage() {
       } else {
         setWorkDays(DEFAULT_WORK_DAYS);
       }
+      // KEROS: carica username; la password non viene esposta dal GET /api/settings
+      // (filtrata lato server). Invece carichiamo solo se è configurata.
+      if (data.keros_username) setKerosUsername(data.keros_username);
+      if (data.keros_password_set === 'true') setKerosPasswordSet(true);
     } catch (err: unknown) {
       console.error('Errore nel caricamento delle impostazioni:', err);
     } finally {
@@ -112,6 +124,47 @@ export default function AdminSettingsPage() {
     setWorkDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
     );
+  };
+
+  // ── Funzioni KEROS ──────────────────────────────────────────────────────────
+
+  const handleSaveKeros = async () => {
+    if (!kerosUsername.trim()) {
+      setKerosFeedback({ status: 'error', message: 'Inserisci username KEROS.' });
+      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 3000);
+      return;
+    }
+    setKerosFeedback({ status: 'loading', message: '' });
+    try {
+      await api.post('/api/settings', { key: 'keros_username', value: kerosUsername.trim() });
+      if (kerosPassword) {
+        await api.post('/api/settings', { key: 'keros_password', value: kerosPassword });
+        setKerosPasswordSet(true);
+        setKerosPassword('');
+      }
+      setKerosFeedback({ status: 'success', message: 'Credenziali KEROS salvate.' });
+      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 3000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Errore salvataggio.';
+      setKerosFeedback({ status: 'error', message });
+      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 4000);
+    }
+  };
+
+  const handleTestKeros = async () => {
+    setKerosTestFeedback({ status: 'loading', message: '' });
+    try {
+      const res = await api.get<{ ok: boolean; configured: boolean; message?: string; error?: string }>('/api/keros');
+      if (res.ok) {
+        setKerosTestFeedback({ status: 'success', message: res.message ?? 'Connessione riuscita.' });
+      } else {
+        setKerosTestFeedback({ status: 'error', message: res.error ?? 'Connessione fallita.' });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Errore di connessione.';
+      setKerosTestFeedback({ status: 'error', message });
+    }
+    setTimeout(() => setKerosTestFeedback(DEFAULT_FEEDBACK), 5000);
   };
 
   if (loading) {
@@ -264,6 +317,87 @@ export default function AdminSettingsPage() {
             </button>
           </div>
         </div>
+
+        {/* ── KEROS HR ── */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+            <span className="text-xl">🏢</span>
+            <div>
+              <h2 className="font-semibold text-gray-900">Integrazione KEROS HR</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Credenziali del responsabile — salvate in Supabase, mai su Vercel
+              </p>
+            </div>
+            {kerosPasswordSet && (
+              <span className="ml-auto text-xs bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
+                ✓ Configurato
+              </span>
+            )}
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            {/* Username */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Username KEROS
+              </label>
+              <input
+                type="text"
+                value={kerosUsername}
+                onChange={(e) => setKerosUsername(e.target.value)}
+                placeholder="es. COGNOME.NOME"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
+              />
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Password KEROS
+                {kerosPasswordSet && !kerosPassword && (
+                  <span className="ml-2 text-xs font-normal text-gray-400">(già configurata — lascia vuoto per non cambiarla)</span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  type={kerosShowPassword ? 'text' : 'password'}
+                  value={kerosPassword}
+                  onChange={(e) => setKerosPassword(e.target.value)}
+                  placeholder={kerosPasswordSet ? '••••••••••••' : 'Inserisci password'}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setKerosShowPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs"
+                >
+                  {kerosShowPassword ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            <FeedbackMessage feedback={kerosFeedback} />
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleTestKeros}
+                disabled={kerosTestFeedback.status === 'loading'}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                {kerosTestFeedback.status === 'loading' ? '⏳ Test...' : '🔌 Testa connessione'}
+              </button>
+              <button
+                onClick={handleSaveKeros}
+                disabled={kerosFeedback.status === 'loading'}
+                className="flex-1 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 text-sm"
+              >
+                {kerosFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva credenziali'}
+              </button>
+            </div>
+
+            <FeedbackMessage feedback={kerosTestFeedback} />
+          </div>
+        </div>
+
       </div>
     </Layout>
   );

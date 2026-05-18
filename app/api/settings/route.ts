@@ -9,11 +9,21 @@ export const GET = withHandler('api/settings', 'GET', async (req) => {
   const key = req.nextUrl.searchParams.get('key');
 
   if (key) {
+    // keros_password non viene mai esposta via GET pubblico
+    if (key === 'keros_password') return jsonOk({ key, value: null });
     const value = await settingsAPI.getSetting(key);
     return jsonOk({ key, value });
   }
 
   const all = await settingsAPI.getAllSettings();
+
+  // Sostituisce la password con un flag booleano — il valore reale
+  // è leggibile solo server-side tramite getServerSupabaseClient()
+  if ('keros_password' in all) {
+    all['keros_password_set'] = all['keros_password'] ? 'true' : 'false';
+    delete all['keros_password'];
+  }
+
   return jsonOk(all);
 });
 

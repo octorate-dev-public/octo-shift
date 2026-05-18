@@ -28,6 +28,15 @@ export default function SchedulePage() {
   const [preferences, setPreferences] = useState<ShiftPreference[]>([]);
   const [showPreferences, setShowPreferences] = useState(true);
 
+  // ── KEROS import ──
+  const [kerosLoading, setKerosLoading] = useState(false);
+  const [kerosResult, setKerosResult] = useState<{
+    imported: number; unmatched: number; skipped: number;
+    details: Array<{ nominativo: string; leaveType: string | null; dataInizio: string; dataFine: string; giorni: number; status: string; }>;
+  } | null>(null);
+  const [kerosError, setKerosError] = useState<string | null>(null);
+  const [showKerosModal, setShowKerosModal] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -111,6 +120,34 @@ export default function SchedulePage() {
     setHolidays(newHolidays);
   };
 
+  const handleKerosImport = async (dryRun = false) => {
+    setKerosLoading(true);
+    setKerosError(null);
+    setKerosResult(null);
+    try {
+      const m = month + 1;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const lastDay = new Date(year, m, 0).getDate();
+      const startDate = `${year}-${pad(m)}-01`;
+      const endDate = `${year}-${pad(m)}-${pad(lastDay)}`;
+
+      const result = await api.post<typeof kerosResult>('/api/keros', {
+        startDate,
+        endDate,
+        situazione: '2', // solo approvate
+        dryRun,
+      });
+      setKerosResult(result);
+      if (!dryRun && result && result.imported > 0) {
+        await loadData(); // aggiorna il calendario
+      }
+    } catch (err: unknown) {
+      setKerosError(err instanceof Error ? err.message : 'Errore importazione KEROS');
+    } finally {
+      setKerosLoading(false);
+    }
+  };
+
   const handleGenerateSchedule = async () => {
     try {
       setGenerating(true);
@@ -148,19 +185,39 @@ export default function SchedulePage() {
   return (
     <Layout userRole="admin" userName="Admin">
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Schedule Mensile</h1>
             <p className="text-gray-600 mt-2">Crea e gestisci lo schedule dei dipendenti</p>
           </div>
-          <button
-            onClick={handleGenerateSchedule}
-            disabled={generating}
-            className="btn-primary disabled:opacity-50"
-          >
-            {generating ? '⏳ Generando...' : '📅 Genera Smart Per Questo Mese'}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Import KEROS */}
+            <button
+              onClick={() => { setShowKerosModal(true); handleKerosImport(true); }}
+              disabled={kerosLoading}
+              title="Importa ferie e permessi approvati da KEROS HR"
+              className="btn-secondary disabled:opacity-50 text-sm"
+            >
+              {kerosLoading ? '⏳' : '📥'} KEROS
+            </button>
+            <button
+              onClick={handleGenerateSchedule}
+              disabled={generating}
+              className="btn-primary disabled:opacity-50"
+            >
+              {generating ? '⏳ Generando...' : '📅 Genera Smart Per Questo Mese'}
+            </button>
+          </div>
         </div>
+
+        {/* KEROS error */}
+        {kerosError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
+            <span className="flex-shrink-0">⚠️</span>
+            <span className="flex-1">{kerosError}</span>
+            <button onClick={() => setKerosError(null)} className="text-red-400 hover:text-red-600">✕</button>
+          </div>
+        )}
 
         <div className="flex items-center justify-between bg-white p-4 rounded-lg shadow">
           <button onClick={() => handleMonthChange(-1)} className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium">
@@ -291,6 +348,124 @@ export default function SchedulePage() {
         onLeaveChange={handleLeaveChange}
         onToggleHoliday={handleToggleHoliday}
       />
+
+      {/* ── Modale KEROS ── */}
+      {showKerosModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-gray-900 text-lg">Importa da KEROS HR</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Ferie e permessi approvati — {new Date(year, month).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowKerosModal(false); setKerosResult(null); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 max-h-96 overflow-y-auto">
+              {kerosLoading && (
+                <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-500">
+                  <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" style={{ borderWidth: 3 }} />
+                  <span className="text-sm">Connessione a KEROS…</span>
+                </div>
+              )}
+
+              {!kerosLoading && kerosError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                  ⚠️ {kerosError}
+                </div>
+              )}
+
+              {!kerosLoading && kerosResult && (
+                <div className="space-y-4">
+                  {/* Riepilogo */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-emerald-50 rounded-xl p-3 text-center border border-emerald-100">
+                      <p className="text-2xl font-bold text-emerald-700">{kerosResult.imported}</p>
+                      <p className="text-xs text-emerald-600 mt-0.5">Giorni da importare</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-xl p-3 text-center border border-amber-100">
+                      <p className="text-2xl font-bold text-amber-700">{kerosResult.unmatched}</p>
+                      <p className="text-xs text-amber-600 mt-0.5">Non abbinati</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
+                      <p className="text-2xl font-bold text-gray-600">{kerosResult.skipped}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Ignorati</p>
+                    </div>
+                  </div>
+
+                  {/* Lista dettaglio */}
+                  {kerosResult.details.length > 0 && (
+                    <div className="space-y-1.5">
+                      {kerosResult.details.map((d, i) => (
+                        <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                          d.status === 'unmatched' ? 'bg-amber-50' :
+                          d.status === 'skipped'   ? 'bg-gray-50 opacity-60' :
+                          'bg-emerald-50'
+                        }`}>
+                          <span className="flex-shrink-0">
+                            {d.status === 'unmatched' ? '⚠️' : d.status === 'skipped' ? '–' : d.leaveType === 'vacation' ? '✈️' : '⭐'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-800 truncate">{d.nominativo}</p>
+                            <p className="text-xs text-gray-500">
+                              {d.dataInizio}{d.dataInizio !== d.dataFine ? ` → ${d.dataFine}` : ''} · {d.giorni}gg
+                              {d.status === 'unmatched' && ' · nessun utente abbinato'}
+                            </p>
+                          </div>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            d.leaveType === 'vacation'   ? 'bg-yellow-100 text-yellow-700' :
+                            d.leaveType === 'permission' ? 'bg-violet-100 text-violet-700' :
+                            'bg-gray-100 text-gray-500'
+                          }`}>
+                            {d.leaveType === 'vacation' ? 'Ferie' : d.leaveType === 'permission' ? 'ROL' : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {kerosResult.unmatched > 0 && (
+                    <p className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                      ⚠️ {kerosResult.unmatched} dipendenti KEROS non trovati in Supabase. Verifica che i nomi coincidano esattamente.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!kerosLoading && kerosResult && (
+              <div className="flex gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50">
+                <button
+                  onClick={() => { setShowKerosModal(false); setKerosResult(null); }}
+                  className="btn-secondary flex-1"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={async () => {
+                    await handleKerosImport(false);
+                    setShowKerosModal(false);
+                  }}
+                  disabled={kerosLoading || (kerosResult?.imported ?? 0) === 0}
+                  className="btn-primary flex-1 disabled:opacity-40"
+                >
+                  📥 Importa {kerosResult?.imported} giorni
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
