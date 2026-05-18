@@ -54,21 +54,37 @@ export const shiftsAPI = {
 
   async upsertShift(userId: string, shiftDate: string, shiftType: ShiftType, leaveType?: LeaveType | null): Promise<Shift> {
     return log.withTiming('upsertShift', { userId, shiftDate, shiftType, leaveType }, async () => {
-      const row: Record<string, unknown> = {
-        user_id: userId,
-        shift_date: shiftDate,
-        shift_type: shiftType,
-      };
-      // Explicitly set leave_type (null clears it)
+      // NON usa ON CONFLICT perché il constraint UNIQUE(user_id, shift_date) è DEFERRABLE
+      // (necessario per lo swap atomico dei turni) e PostgreSQL non supporta
+      // constraint deferrable come arbitri di ON CONFLICT.
+      const { data: existing } = await supabase
+        .from('shifts')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('shift_date', shiftDate)
+        .maybeSingle();
+
+      const row: Record<string, unknown> = { shift_type: shiftType };
       if (leaveType !== undefined) row.leave_type = leaveType ?? null;
+
+      if (existing) {
+        const { data, error } = await supabase
+          .from('shifts')
+          .update(row)
+          .eq('user_id', userId)
+          .eq('shift_date', shiftDate)
+          .select()
+          .single();
+        if (error) throw toAppError(error, 'Impossibile aggiornare il turno');
+        return data;
+      }
 
       const { data, error } = await supabase
         .from('shifts')
-        .upsert(row, { onConflict: 'user_id,shift_date' })
+        .insert({ user_id: userId, shift_date: shiftDate, ...row })
         .select()
         .single();
-
-      if (error) throw toAppError(error, 'Impossibile salvare il turno');
+      if (error) throw toAppError(error, 'Impossibile creare il turno');
       return data;
     });
   },
@@ -143,14 +159,68 @@ export const shiftsAPI = {
         log.warn('bulkUpsertShifts', 'Chiamata con array vuoto');
         return [];
       }
-      const { data, error } = await supabase
-        .from('shifts')
-        .upsert(shifts, { onConflict: 'user_id,shift_date' })
-        .select();
 
-      if (error) throw toAppError(error, 'Impossibile salvare i turni in blocco');
-      log.info('bulkUpsertShifts', `Salvati ${(data || []).length} turni`);
-      return data || [];
+      // NON usa ON CONFLICT — constraint UNIQUE(user_id, shift_date) è DEFERRABLE
+      // (necessario per lo swap atomico). Strategia: fetch esistenti → INSERT nuovi, UPDATE esistenti.
+
+      // 1. Recupera tutti gli ID per le combinazioni (user_id, shift_date) che stiamo per salvare
+      const userIds  = [...new Set(shifts.map(s => s.user_id))];
+      const dates    = [...new Set(shifts.map(s => s.shift_date))];
+
+      const { data: existing, error: fetchErr } = await supabase
+        .from('shifts')
+        .select('id, user_id, shift_date')
+        .in('user_id', userIds)
+        .in('shift_date', dates);
+
+      if (fetchErr) throw toAppError(fetchErr, 'Impossibile verificare i turni esistenti');
+
+      // Mappa "userId:date" → id esistente
+      const existingMap = new Map<string, string>();
+      for (const s of existing || []) {
+        existingMap.set(`${s.user_id}:${s.shift_date}`, s.id);
+      }
+
+      const toInsert = shifts.filter(s => !existingMap.has(`${s.user_id}:${s.shift_date}`));
+      const toUpdate = shifts.filter(s =>  existingMap.has(`${s.user_id}:${s.shift_date}`));
+
+      const results: Shift[] = [];
+
+      // 2. INSERT in batch per i nuovi turni
+      const INSERT_BATCH = 200;
+      for (let i = 0; i < toInsert.length; i += INSERT_BATCH) {
+        const batch = toInsert.slice(i, i + INSERT_BATCH);
+        const { data, error } = await supabase
+          .from('shifts')
+          .insert(batch)
+          .select();
+        if (error) throw toAppError(error, 'Impossibile inserire i nuovi turni');
+        results.push(...(data || []));
+      }
+
+      // 3. UPDATE in parallelo per i turni già esistenti (batch di 50)
+      const UPDATE_BATCH = 50;
+      for (let i = 0; i < toUpdate.length; i += UPDATE_BATCH) {
+        const batch = toUpdate.slice(i, i + UPDATE_BATCH);
+        const updateResults = await Promise.all(
+          batch.map(s => {
+            const id = existingMap.get(`${s.user_id}:${s.shift_date}`)!;
+            return supabase
+              .from('shifts')
+              .update({ shift_type: s.shift_type, leave_type: s.leave_type ?? null })
+              .eq('id', id)
+              .select()
+              .single();
+          }),
+        );
+        for (const { data, error } of updateResults) {
+          if (error) throw toAppError(error, 'Impossibile aggiornare il turno esistente');
+          if (data) results.push(data);
+        }
+      }
+
+      log.info('bulkUpsertShifts', `Salvati ${results.length} turni (${toInsert.length} nuovi, ${toUpdate.length} aggiornati)`);
+      return results;
     });
   },
 

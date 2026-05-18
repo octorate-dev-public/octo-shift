@@ -1,88 +1,68 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { OnCallDailyAssignment, User } from '@/types';
-import { formatDate, getInitials, parseDateString } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 
-const ITALIAN_MONTHS = [
-  'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
-  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
+// ─── Costanti ────────────────────────────────────────────────────────────────
+const MESI_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+const GIORNI_HEADER = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+
+// Palette colori — stessa del componente admin on-call
+const USER_COLORS = [
+  { bg: '#6366f1', light: '#eef2ff', text: '#4338ca' },
+  { bg: '#10b981', light: '#ecfdf5', text: '#065f46' },
+  { bg: '#f59e0b', light: '#fffbeb', text: '#92400e' },
+  { bg: '#ef4444', light: '#fef2f2', text: '#991b1b' },
+  { bg: '#8b5cf6', light: '#f5f3ff', text: '#6d28d9' },
+  { bg: '#06b6d4', light: '#ecfeff', text: '#155e75' },
+  { bg: '#ec4899', light: '#fdf2f8', text: '#9d174d' },
+  { bg: '#14b8a6', light: '#f0fdfa', text: '#115e59' },
 ];
 
-const GIORNI_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
-
+// ─── Tipi ─────────────────────────────────────────────────────────────────────
 interface DailyEntry extends OnCallDailyAssignment {
   user?: User;
 }
 
-interface DayGroup {
-  userId: string;
-  user?: User;
-  startDate: string;
-  endDate: string;
-  dates: string[];
+// ─── Utility ─────────────────────────────────────────────────────────────────
+function getInitials(name: string): string {
+  return name.split(' ').filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2);
 }
 
-/** Raggruppa giorni consecutivi assegnati allo stesso utente in blocchi. */
-function groupConsecutiveDays(entries: DailyEntry[]): DayGroup[] {
-  if (entries.length === 0) return [];
-  const groups: DayGroup[] = [];
-  let cur: DayGroup = {
-    userId: entries[0].user_id,
-    user: entries[0].user,
-    startDate: entries[0].assignment_date,
-    endDate: entries[0].assignment_date,
-    dates: [entries[0].assignment_date],
-  };
-  for (let i = 1; i < entries.length; i++) {
-    const e = entries[i];
-    if (e.user_id === cur.userId) {
-      cur.endDate = e.assignment_date;
-      cur.dates.push(e.assignment_date);
-    } else {
-      groups.push({ ...cur, dates: [...cur.dates] });
-      cur = { userId: e.user_id, user: e.user, startDate: e.assignment_date, endDate: e.assignment_date, dates: [e.assignment_date] };
-    }
+function getDaysInMonth(year: number, month: number): Date[] {
+  // month: 1-based
+  const days: Date[] = [];
+  const d = new Date(year, month - 1, 1);
+  while (d.getMonth() === month - 1) {
+    days.push(new Date(d));
+    d.setDate(d.getDate() + 1);
   }
-  groups.push(cur);
-  return groups;
+  return days;
 }
 
-function formatDateRange(start: string, end: string): string {
-  const s = parseDateString(start);
-  const e = parseDateString(end);
-  if (start === end) {
-    return s.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
-  }
-  const sameMonth = s.getMonth() === e.getMonth();
-  const startStr = `${GIORNI_IT[s.getDay()]} ${s.getDate()}${sameMonth ? '' : ' ' + ITALIAN_MONTHS[s.getMonth()]}`;
-  const endStr = `${GIORNI_IT[e.getDay()]} ${e.getDate()} ${ITALIAN_MONTHS[e.getMonth()]}`;
-  return `${startStr} – ${endStr}`;
+/** Numero di celle vuote prima del primo giorno (lunedì = 0). */
+function leadingBlanks(year: number, month: number): number {
+  const firstDow = new Date(year, month - 1, 1).getDay(); // 0=dom
+  return firstDow === 0 ? 6 : firstDow - 1; // converti a lun-based
 }
 
-function isToday(date: string): boolean {
-  return date === formatDate(new Date());
-}
-
-function includesDate(dates: string[], date: string): boolean {
-  return dates.includes(date);
-}
-
+// ─── Componente ───────────────────────────────────────────────────────────────
 export default function OnCallPage() {
   const today = new Date();
   const todayStr = formatDate(today);
 
   const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
+  const [month, setMonth] = useState(today.getMonth() + 1); // 1-based
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('Utente');
 
-  // Utente autenticato
+  // Auth
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) setCurrentUserId(data.user.id);
@@ -92,27 +72,20 @@ export default function OnCallPage() {
   useEffect(() => {
     if (!currentUserId) return;
     api.get<{ full_name: string }>(`/api/users?id=${currentUserId}`)
-      .then((u) => { if (u?.full_name) setUserName(u.full_name); })
+      .then(u => { if (u?.full_name) setUserName(u.full_name); })
       .catch(() => {});
   }, [currentUserId]);
 
-  useEffect(() => {
-    loadData();
-  }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Carica dati
+  useEffect(() => { loadData(); }, [year, month]); // eslint-disable-line
 
   const loadData = async () => {
     try {
       setLoading(true);
-      // Usa la nuova tabella daily (con join user già incluso lato server)
-      const data = await api.get<DailyEntry[]>(
-        `/api/on-call?dailyYear=${year}&dailyMonth=${month}`,
-      );
+      const data = await api.get<DailyEntry[]>(`/api/on-call?dailyYear=${year}&dailyMonth=${month}`);
       setEntries(data);
-    } catch {
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch { setEntries([]); }
+    finally { setLoading(false); }
   };
 
   const handleMonthChange = (delta: number) => {
@@ -121,141 +94,226 @@ export default function OnCallPage() {
     setMonth(d.getMonth() + 1);
   };
 
-  const groups = groupConsecutiveDays(entries);
-  const todayEntry = entries.find((e) => e.assignment_date === todayStr);
-  const myGroups = groups.filter((g) => g.userId === currentUserId);
-  const myDaysCount = entries.filter((e) => e.user_id === currentUserId).length;
+  // ── Mappa data → entry ──
+  const entryByDate = useMemo(() => {
+    const m = new Map<string, DailyEntry>();
+    entries.forEach(e => m.set(e.assignment_date, e));
+    return m;
+  }, [entries]);
+
+  // ── Mappa userId → colore (stabile per l'ordine di apparizione) ──
+  const userColorMap = useMemo(() => {
+    const m = new Map<string, (typeof USER_COLORS)[0]>();
+    let idx = 0;
+    entries.forEach(e => {
+      if (e.user_id && !m.has(e.user_id)) {
+        m.set(e.user_id, USER_COLORS[idx % USER_COLORS.length]);
+        idx++;
+      }
+    });
+    return m;
+  }, [entries]);
+
+  // ── Utenti unici nel mese (per legenda) ──
+  const usersInMonth = useMemo(() => {
+    const seen = new Map<string, { user?: User; days: number }>();
+    entries.forEach(e => {
+      const cur = seen.get(e.user_id);
+      seen.set(e.user_id, { user: e.user, days: (cur?.days ?? 0) + 1 });
+    });
+    return Array.from(seen.entries()).map(([id, v]) => ({ id, ...v }));
+  }, [entries]);
+
+  // ── Chi è di reperibilità oggi ──
+  const todayEntry = entryByDate.get(todayStr);
+
+  // ── I miei giorni ──
+  const myDays = entries.filter(e => e.user_id === currentUserId);
+  const myNext = myDays.find(e => e.assignment_date >= todayStr);
+
+  // ── Calendario ──
+  const days = getDaysInMonth(year, month);
+  const blanks = leadingBlanks(year, month);
+
+  // Rileva "swap" = giorno isolato dello stesso utente (non consecutivo con il precedente/successivo)
+  function isSwappedDay(dateStr: string): boolean {
+    const e = entryByDate.get(dateStr);
+    if (!e) return false;
+    const d = new Date(dateStr + 'T00:00:00');
+    const prev = new Date(d); prev.setDate(d.getDate() - 1);
+    const next = new Date(d); next.setDate(d.getDate() + 1);
+    const prevEntry = entryByDate.get(formatDate(prev));
+    const nextEntry = entryByDate.get(formatDate(next));
+    const samePrev = prevEntry?.user_id === e.user_id;
+    const sameNext = nextEntry?.user_id === e.user_id;
+    return !samePrev && !sameNext; // isolato → probabilmente uno swap
+  }
 
   return (
     <Layout userRole="user" userName={userName}>
-      <div className="space-y-5">
+      <div className="space-y-5 max-w-2xl mx-auto">
 
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reperibilità</h1>
-          <p className="text-gray-500 mt-1 text-sm">Chi è reperibile questo mese</p>
+        {/* ── Header + nav mese ── */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Reperibilità</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Chi è reperibile questo mese</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => handleMonthChange(-1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition">‹</button>
+            <span className="text-sm font-semibold text-gray-800 px-1 min-w-[110px] text-center">
+              {MESI_IT[month - 1]} {year}
+            </span>
+            <button onClick={() => handleMonthChange(1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition">›</button>
+          </div>
         </div>
 
-        {/* Chi è di reperibilità OGGI */}
+        {/* ── Card oggi ── */}
         {todayEntry && (
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-5 text-white shadow-lg">
-            <p className="text-xs font-semibold text-green-200 uppercase tracking-wide mb-2">📞 Reperibile oggi</p>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg flex-shrink-0">
-                {todayEntry.user ? getInitials(todayEntry.user.full_name) : '?'}
-              </div>
-              <div>
-                <p className="text-xl font-bold leading-tight">
-                  {todayEntry.user?.full_name ?? 'N/D'}
-                  {todayEntry.user_id === currentUserId && (
-                    <span className="ml-2 text-sm font-normal text-green-200">(tu)</span>
-                  )}
+          <div className="rounded-2xl p-5 flex items-center gap-4 text-white"
+            style={{ background: `linear-gradient(135deg, ${userColorMap.get(todayEntry.user_id)?.bg ?? '#6366f1'}, ${userColorMap.get(todayEntry.user_id)?.bg ?? '#6366f1'}cc)` }}>
+            <div className="w-12 h-12 rounded-full bg-white/25 flex items-center justify-center font-bold text-lg flex-shrink-0">
+              {todayEntry.user ? getInitials(todayEntry.user.full_name) : '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-white/70 uppercase tracking-wide mb-0.5">📞 Reperibile oggi</p>
+              <p className="text-xl font-bold leading-tight truncate">
+                {todayEntry.user?.full_name ?? 'N/D'}
+                {todayEntry.user_id === currentUserId && <span className="ml-2 text-sm font-normal text-white/70">(tu)</span>}
+              </p>
+              {todayEntry.user?.email && <p className="text-sm text-white/70 truncate">{todayEntry.user.email}</p>}
+            </div>
+          </div>
+        )}
+
+        {/* ── I miei turni ── */}
+        {myDays.length > 0 && (
+          <div className="rounded-xl border p-4 space-y-2"
+            style={{ background: userColorMap.get(currentUserId ?? '')?.light ?? '#eef2ff', borderColor: (userColorMap.get(currentUserId ?? '')?.bg ?? '#6366f1') + '33' }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold" style={{ color: userColorMap.get(currentUserId ?? '')?.text ?? '#4338ca' }}>
+                📅 I miei giorni — {myDays.length} {myDays.length === 1 ? 'giorno' : 'giorni'}
+              </p>
+              {myNext && myNext.assignment_date !== todayStr && (
+                <p className="text-xs" style={{ color: userColorMap.get(currentUserId ?? '')?.text ?? '#4338ca' }}>
+                  Prossimo: {new Date(myNext.assignment_date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })}
                 </p>
-                {todayEntry.user?.email && (
-                  <p className="text-sm text-green-100 mt-0.5">{todayEntry.user.email}</p>
-                )}
-              </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* I miei blocchi nel mese */}
-        {myGroups.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <h2 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
-              📅 Le mie reperibilità questo mese
-              <span className="bg-blue-200 text-blue-900 text-xs px-2 py-0.5 rounded-full font-bold">
-                {myDaysCount} {myDaysCount === 1 ? 'giorno' : 'giorni'}
-              </span>
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {myGroups.map((g, i) => (
-                <span key={i} className="inline-flex items-center px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {formatDateRange(g.startDate, g.endDate)}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Navigazione mese */}
-        <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-          <button onClick={() => handleMonthChange(-1)} className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium hover:bg-gray-100 rounded-lg transition">
-            ← Precedente
-          </button>
-          <span className="text-base font-semibold text-gray-900">{ITALIAN_MONTHS[month - 1]} {year}</span>
-          <button onClick={() => handleMonthChange(1)} className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium hover:bg-gray-100 rounded-lg transition">
-            Successivo →
-          </button>
-        </div>
-
-        {/* Lista blocchi */}
+        {/* ── Calendario mensile ── */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : groups.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 py-16 text-center text-gray-500">
-            <p className="text-4xl mb-3">📭</p>
-            <p className="text-lg font-medium">Nessuna reperibilità assegnata</p>
-            <p className="text-sm mt-1">Non ci sono turni di reperibilità per {ITALIAN_MONTHS[month - 1]} {year}.</p>
+            <div className="w-7 h-7 border-[3px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="space-y-2">
-            {groups.map((g, idx) => {
-              const active = includesDate(g.dates, todayStr);
-              const past = g.endDate < todayStr;
-              const isMe = g.userId === currentUserId;
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
-              return (
-                <div
-                  key={idx}
-                  className={[
-                    'bg-white rounded-xl border p-4 flex items-center gap-4 transition-all',
-                    active ? 'border-green-400 ring-2 ring-green-100 shadow-md' : 'border-gray-200',
-                    past ? 'opacity-50' : 'hover:shadow-sm',
-                  ].join(' ')}
-                >
-                  {/* Avatar */}
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
-                    active ? 'bg-green-500 text-white' : isMe ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
-                  }`}>
-                    {g.user ? getInitials(g.user.full_name) : '?'}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm">
-                      {g.user?.full_name ?? 'Sconosciuto'}
-                      {isMe && <span className="ml-2 text-xs text-blue-600 font-medium">(tu)</span>}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                      {formatDateRange(g.startDate, g.endDate)}
-                      <span className="text-gray-400 ml-1.5 text-xs">
-                        · {g.dates.length} {g.dates.length === 1 ? 'giorno' : 'giorni'}
-                      </span>
-                    </p>
-                    {g.user?.email && (
-                      <p className="text-xs text-gray-400 mt-0.5">{g.user.email}</p>
-                    )}
-                  </div>
-
-                  {/* Badge */}
-                  <div className="flex-shrink-0">
-                    {active ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                        Adesso
-                      </span>
-                    ) : past ? (
-                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-400">Passato</span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">Prossimo</span>
-                    )}
-                  </div>
+            {/* Header giorni */}
+            <div className="grid grid-cols-7 border-b border-gray-100">
+              {GIORNI_HEADER.map(d => (
+                <div key={d} className="py-2 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                  {d}
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            {/* Celle */}
+            <div className="grid grid-cols-7 p-2 gap-1">
+              {/* Celle vuote prima del 1° */}
+              {Array.from({ length: blanks }).map((_, i) => <div key={`b${i}`} />)}
+
+              {days.map(date => {
+                const dateStr = formatDate(date);
+                const entry = entryByDate.get(dateStr);
+                const color = entry ? userColorMap.get(entry.user_id) : null;
+                const isToday = dateStr === todayStr;
+                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                const isMe = entry?.user_id === currentUserId;
+                const swapped = entry ? isSwappedDay(dateStr) : false;
+
+                return (
+                  <div key={dateStr}
+                    className={`relative flex flex-col items-center justify-start pt-1 pb-1.5 rounded-xl min-h-[56px] transition-all ${
+                      isWeekend ? 'opacity-60' : ''
+                    }`}
+                    style={entry ? { background: color?.light } : undefined}
+                  >
+                    {/* Numero giorno */}
+                    <span className={`text-[11px] font-semibold mb-1 w-5 h-5 flex items-center justify-center rounded-full leading-none ${
+                      isToday
+                        ? 'bg-indigo-600 text-white'
+                        : isWeekend
+                        ? 'text-gray-400'
+                        : entry ? '' : 'text-gray-300'
+                    }`}
+                      style={isToday ? {} : entry ? { color: color?.text } : {}}
+                    >
+                      {date.getDate()}
+                    </span>
+
+                    {/* Avatar persona */}
+                    {entry && (
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+                        style={{ background: color?.bg }}
+                        title={`${entry.user?.full_name ?? '?'}${swapped ? ' · giorno scambiato' : ''}`}
+                      >
+                        {entry.user ? getInitials(entry.user.full_name) : '?'}
+                      </div>
+                    )}
+
+                    {/* Indicatori */}
+                    {isToday && (
+                      <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    )}
+                    {swapped && (
+                      <span className="absolute bottom-0.5 right-0.5 text-[8px]" title="Giorno scambiato">↕</span>
+                    )}
+                    {isMe && !isToday && (
+                      <span className="absolute top-0.5 left-0.5 w-1.5 h-1.5 rounded-full bg-white/70 ring-1 ring-indigo-400" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legenda */}
+            {usersInMonth.length > 0 && (
+              <div className="border-t border-gray-100 px-4 py-3 flex flex-wrap gap-x-4 gap-y-2">
+                {usersInMonth.map(({ id, user, days: count }) => {
+                  const color = userColorMap.get(id);
+                  const isMe = id === currentUserId;
+                  return (
+                    <div key={id} className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                        style={{ background: color?.bg }}>
+                        {user ? getInitials(user.full_name) : '?'}
+                      </div>
+                      <span className="text-xs text-gray-600 font-medium">
+                        {user?.full_name ?? 'N/D'}
+                        {isMe && <span className="ml-1 text-gray-400">(tu)</span>}
+                      </span>
+                      <span className="text-xs text-gray-400">· {count}gg</span>
+                    </div>
+                  );
+                })}
+                <div className="ml-auto flex items-center gap-1 text-xs text-gray-400">
+                  <span>↕ = scambio giorno</span>
+                </div>
+              </div>
+            )}
+
+            {/* Mese vuoto */}
+            {!loading && entries.length === 0 && (
+              <div className="py-12 text-center text-gray-400 text-sm">
+                Nessuna reperibilità assegnata per {MESI_IT[month - 1]} {year}
+              </div>
+            )}
           </div>
         )}
       </div>

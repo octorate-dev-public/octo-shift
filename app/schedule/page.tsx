@@ -33,10 +33,12 @@ export default function SchedulePage() {
   const [month, setMonth] = useState<number>(() => new Date().getMonth());
 
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [onCallDates, setOnCallDates] = useState<string[]>([]); // YYYY-MM-DD
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('Utente');
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [icsLinkCopied, setIcsLinkCopied] = useState(false);
 
   // Resolve current user on mount
   useEffect(() => {
@@ -63,8 +65,14 @@ export default function SchedulePage() {
       setLoading(true);
       const start = formatDate(new Date(year, month, 1));
       const end = formatDate(new Date(year, month + 1, 0));
-      const data = await api.get<Shift[]>(`/api/shifts?userId=${userId}&start=${start}&end=${end}`);
-      setShifts(data);
+      const [shiftsData, onCallData] = await Promise.all([
+        api.get<Shift[]>(`/api/shifts?userId=${userId}&start=${start}&end=${end}`),
+        api.get<Array<{ assignment_date: string }>>(`/api/on-call?dailyYear=${year}&dailyMonth=${month + 1}`)
+          .then(all => all.filter((e: any) => e.user_id === userId).map((e: any) => e.assignment_date))
+          .catch(() => [] as string[]),
+      ]);
+      setShifts(shiftsData);
+      setOnCallDates(onCallData);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Errore nel caricamento dello schedule');
     } finally {
@@ -85,6 +93,20 @@ export default function SchedulePage() {
   const shiftByDate = new Map<string, Shift>();
   shifts.forEach((s) => shiftByDate.set(s.shift_date, s));
 
+  const onCallSet = new Set(onCallDates);
+
+  const icsUrl = userId
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/ics?uid=${userId}`
+    : '';
+
+  const handleCopyIcsLink = () => {
+    if (!icsUrl) return;
+    navigator.clipboard.writeText(icsUrl).then(() => {
+      setIcsLinkCopied(true);
+      setTimeout(() => setIcsLinkCopied(false), 2500);
+    });
+  };
+
   const days = getDaysInMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
 
@@ -102,6 +124,29 @@ export default function SchedulePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Il Mio Schedule</h1>
           <p className="text-gray-600 mt-1">Visualizza i tuoi turni del mese</p>
+          {/* Pulsante ICS */}
+          {userId && (
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <a
+                href={icsUrl}
+                download
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition shadow-sm"
+                title="Scarica il file ICS da importare su Google Calendar"
+              >
+                📥 Scarica .ics
+              </a>
+              <button
+                onClick={handleCopyIcsLink}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition shadow-sm"
+                title="Copia il link da incollare in Google Calendar → Aggiungi da URL"
+              >
+                {icsLinkCopied ? '✓ Link copiato!' : '🔗 Copia link Google Calendar'}
+              </button>
+              <span className="text-xs text-gray-400">
+                In Google Calendar: + → Da URL → incolla il link
+              </span>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -212,6 +257,13 @@ export default function SchedulePage() {
                       )}
                     </div>
 
+                    {/* Reperibilità badge */}
+                    {onCallSet.has(dateStr) && (
+                      <span className="text-[10px] font-semibold px-1 py-0.5 rounded text-center bg-red-100 text-red-700">
+                        📞 Rep.
+                      </span>
+                    )}
+
                     {/* Shift badge */}
                     {shift ? (
                       <span
@@ -225,6 +277,27 @@ export default function SchedulePage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Reperibilità mese */}
+        {onCallDates.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <span className="text-lg flex-shrink-0">📞</span>
+            <div>
+              <p className="text-sm font-semibold text-red-800">
+                Reperibilità questo mese — {onCallDates.length} {onCallDates.length === 1 ? 'giorno' : 'giorni'}
+              </p>
+              <p className="text-xs text-red-600 mt-0.5">
+                {onCallDates.map(d => {
+                  const dt = parseDateString(d);
+                  return dt.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+                }).join(', ')}
+              </p>
+              <p className="text-xs text-red-500 mt-1">
+                Orario: 18:00 → 09:00 del giorno successivo (Europe/Rome)
+              </p>
             </div>
           </div>
         )}
