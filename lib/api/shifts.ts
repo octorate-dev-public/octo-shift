@@ -75,25 +75,31 @@ export const shiftsAPI = {
 
   /**
    * Imposta il leave_type per un giorno specifico.
-   * Se lo shift non esiste ancora lo crea con shift_type='smartwork' (default).
-   * Se leaveType è null e lo shift non esiste, non fa nulla.
+   *
+   * NON usa upsert/ON CONFLICT perché il constraint UNIQUE(user_id, shift_date)
+   * è stato reso DEFERRABLE per supportare lo swap atomico dei turni, e
+   * PostgreSQL non permette constraint deferrable come arbitri di ON CONFLICT.
+   *
+   * Strategia: check esistenza → INSERT se assente, UPDATE se presente.
    */
   async setLeaveType(userId: string, shiftDate: string, leaveType: LeaveType | null): Promise<Shift> {
     return log.withTiming('setLeaveType', { userId, shiftDate, leaveType }, async () => {
-      if (leaveType === null) {
-        // Rimozione: aggiorna solo se la riga esiste già
-        const { data: existing } = await supabase
-          .from('shifts')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('shift_date', shiftDate)
-          .maybeSingle();
+      // 1. Controlla se lo shift esiste già
+      const { data: existing, error: fetchErr } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('shift_date', shiftDate)
+        .maybeSingle();
 
+      if (fetchErr) throw toAppError(fetchErr, 'Impossibile verificare il turno esistente');
+
+      // 2a. Rimozione assenza su riga esistente
+      if (leaveType === null) {
         if (!existing) {
-          // Nessuna riga → niente da pulire, restituisce un oggetto vuoto coerente
+          // Nessuna riga → niente da pulire
           return { id: '', user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: null, locked: false, locked_by: null, created_at: '', updated_at: '' } as unknown as Shift;
         }
-
         const { data, error } = await supabase
           .from('shifts')
           .update({ leave_type: null })
@@ -101,22 +107,30 @@ export const shiftsAPI = {
           .eq('shift_date', shiftDate)
           .select()
           .single();
-
         if (error) throw toAppError(error, 'Impossibile rimuovere il tipo di assenza');
         return data;
       }
 
-      // Inserimento/aggiornamento: upsert per gestire il caso in cui lo shift non esiste
+      // 2b. Aggiornamento riga esistente: preserva shift_type già pianificato
+      if (existing) {
+        const { data, error } = await supabase
+          .from('shifts')
+          .update({ leave_type: leaveType })
+          .eq('user_id', userId)
+          .eq('shift_date', shiftDate)
+          .select()
+          .single();
+        if (error) throw toAppError(error, 'Impossibile aggiornare il tipo di assenza');
+        return data;
+      }
+
+      // 2c. Nessuna riga: crea un nuovo shift con smartwork come tipo default
       const { data, error } = await supabase
         .from('shifts')
-        .upsert(
-          { user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: leaveType },
-          { onConflict: 'user_id,shift_date', ignoreDuplicates: false },
-        )
+        .insert({ user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: leaveType })
         .select()
         .single();
-
-      if (error) throw toAppError(error, 'Impossibile salvare il tipo di assenza');
+      if (error) throw toAppError(error, 'Impossibile creare il turno con assenza');
       return data;
     });
   },
