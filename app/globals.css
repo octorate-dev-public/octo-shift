@@ -2,162 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* ─── Reset ────────────────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
-html {
-  scroll-behavior: smooth;
-}
-
+/* ─── Body ──────────────────────────────────────────────────────── */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+    'Oxygen', 'Ubuntu', 'Cantarell', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #f1f5f9 0%, #eef2ff 55%, #f0f9ff 100%);
+  min-height: 100vh;
 }
 
-/* Calendar styles */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+/* ─── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 5px; height: 5px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: #c7d2fe; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #818cf8; }
+
+/* ─── Glass utilities ───────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.07), 0 1px 4px rgba(15, 23, 42, 0.04);
 }
 
-.calendar-day {
-  aspect-ratio: 1;
-  border: 1px solid #e5e7eb;
-  padding: 4px;
-  position: relative;
-  background-color: white;
+.glass-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(99, 102, 241, 0.06);
 }
 
-.calendar-day.weekend {
-  background-color: #f3f4f6;
-}
-
-.calendar-day-number {
-  font-size: 12px;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 2px;
-}
-
-.calendar-day-content {
-  font-size: 10px;
-  overflow: hidden;
-}
-
-/* Drag and drop styles */
-.dragging {
-  opacity: 0.5;
-}
-
-.drag-over {
-  background-color: #e0e7ff;
-  border: 2px dashed #4f46e5;
-}
-
-/* Shift colors */
-.shift-office {
-  @apply bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium;
-}
-
-.shift-smartwork {
-  @apply bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium;
-}
-
-.shift-sick {
-  @apply bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium;
-}
-
-.shift-vacation {
-  @apply bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium;
-}
-
-.shift-permission {
-  @apply bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-medium;
-}
-
-/* Sidebar styles */
-.sidebar {
-  @apply bg-white shadow-lg h-screen sticky top-0 overflow-y-auto;
-}
-
-.sidebar-item {
-  @apply px-4 py-3 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition;
-}
-
-.sidebar-item.active {
-  @apply bg-blue-50 border-l-4 border-blue-500;
-}
-
-/* Modal styles */
-.modal-overlay {
-  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
-}
-
-.modal-content {
-  @apply bg-white rounded-lg shadow-xl max-w-md w-full mx-4;
-}
-
-/* Button styles */
+/* ─── Buttons ───────────────────────────────────────────────────── */
 .btn-primary {
-  @apply bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-medium;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 12px;
+  font-weight: 600; font-size: 14px;
+  color: white; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s ease;
 }
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.5);
+  transform: translateY(-1px);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
 .btn-secondary {
-  @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition font-medium;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 12px;
+  font-weight: 500; font-size: 14px;
+  color: #475569; cursor: pointer;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  transition: all 0.2s ease;
+}
+.btn-secondary:hover {
+  background: white;
+  border-color: #a5b4fc;
+  color: #4f46e5;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.12);
 }
 
 .btn-danger {
-  @apply bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition font-medium;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 12px;
+  font-weight: 600; font-size: 14px;
+  color: white; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #f43f5e 0%, #dc2626 100%);
+  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.35);
+  transition: all 0.2s ease;
+}
+.btn-danger:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(244, 63, 94, 0.45);
+  transform: translateY(-1px);
 }
 
-.btn-small {
-  @apply text-xs px-2 py-1;
+.btn-small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+
+/* ─── Shift color badges ────────────────────────────────────────── */
+.shift-office     { @apply bg-blue-100   text-blue-800   px-2 py-1 rounded-lg text-xs font-medium; }
+.shift-smartwork  { @apply bg-emerald-100 text-emerald-800 px-2 py-1 rounded-lg text-xs font-medium; }
+.shift-sick       { @apply bg-red-100    text-red-800    px-2 py-1 rounded-lg text-xs font-medium; }
+.shift-vacation   { @apply bg-amber-100  text-amber-800  px-2 py-1 rounded-lg text-xs font-medium; }
+.shift-permission { @apply bg-violet-100 text-violet-800 px-2 py-1 rounded-lg text-xs font-medium; }
+
+/* ─── Drag & drop ───────────────────────────────────────────────── */
+.dragging { opacity: 0.4; }
+.drag-over {
+  background: rgba(99, 102, 241, 0.08);
+  border: 2px dashed #6366f1;
+  border-radius: 10px;
 }
 
-/* Lock icon */
-.lock-icon {
-  @apply inline-block w-4 h-4 text-yellow-600;
-}
-
-/* Loading state */
-.loading {
-  @apply animate-spin h-5 w-5;
-}
-
-/* Utility classes */
-.truncate-text {
-  @apply overflow-hidden text-ellipsis whitespace-nowrap;
-}
-
+/* ─── Animations ────────────────────────────────────────────────── */
 .fade-in {
-  animation: fadeIn 0.3s ease-in-out;
+  animation: fadeIn 0.22s ease-out;
 }
-
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .slide-in {
-  animation: slideIn 0.3s ease-in-out;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
 }
 
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
+/* ─── Utility ───────────────────────────────────────────────────── */
+.truncate-text { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
+.lock-icon     { @apply inline-block w-4 h-4 text-amber-500; }
+.loading       { @apply animate-spin h-5 w-5; }
+
+/* ─── Legacy calendar (backward compat) ─────────────────────────── */
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.calendar-day  { aspect-ratio: 1; border: 1px solid #e5e7eb; padding: 4px; background: white; }
+.calendar-day.weekend     { background: #f8fafc; }
+.calendar-day-number      { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 2px; }
+.calendar-day-content     { font-size: 10px; overflow: hidden; }
+
+/* Modal backdrop */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(6px);
+}
+.modal-content {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+  max-width: 28rem; width: 100%; margin: 16px;
 }

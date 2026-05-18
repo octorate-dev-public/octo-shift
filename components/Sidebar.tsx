@@ -119,78 +119,109 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
   const allItems: MenuItem[] = sections.flatMap((s) => s.items);
 
+  // Stili inline per dark glass (non disponibili come classi Tailwind senza config custom)
+  const sidebarStyle: React.CSSProperties = {
+    background: 'linear-gradient(180deg, #0f172a 0%, #131b2e 60%, #0f172a 100%)',
+    borderRight: '1px solid rgba(255,255,255,0.05)',
+  };
+
+  const activeItemStyle: React.CSSProperties = {
+    background: 'rgba(99,102,241,0.18)',
+    color: '#a5b4fc',
+    borderLeft: '2px solid #6366f1',
+    paddingLeft: 'calc(12px - 2px)',
+  };
+
+  const inactiveItemStyle: React.CSSProperties = {
+    color: 'rgba(148,163,184,0.85)',
+  };
+
   return (
     <aside
-      className={`${
-        isOpen ? 'w-64' : 'w-16'
-      } shrink-0 bg-white border-r border-gray-200 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30 flex flex-col`}
+      className={`${isOpen ? 'w-64' : 'w-16'} shrink-0 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30 flex flex-col`}
+      style={sidebarStyle}
     >
-      {/* Logo */}
-      <div className={`${isOpen ? 'p-4' : 'p-3'} border-b border-gray-200 flex items-center ${isOpen ? 'gap-3' : 'justify-center'}`}>
-        <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden">
+      {/* ── Logo ── */}
+      <div
+        className={`${isOpen ? 'px-4 py-4' : 'px-2 py-3'} flex items-center ${isOpen ? 'gap-3' : 'justify-center'} flex-shrink-0`}
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+      >
+        <div className="flex-shrink-0 w-9 h-9 rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10">
           <Image
             src="/project_icon.png"
             alt="Logo"
-            width={40}
-            height={40}
+            width={36}
+            height={36}
             className="w-full h-full object-cover"
             priority
           />
         </div>
         {isOpen && (
-          <span className="font-bold text-gray-800 text-sm leading-tight">
-            SmartWork<br />Scheduler
-          </span>
+          <div>
+            <p className="font-bold text-white text-sm leading-tight">SmartWork</p>
+            <p className="text-[11px] font-medium" style={{ color: 'rgba(148,163,184,0.7)' }}>Scheduler</p>
+          </div>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className={`${isOpen ? 'p-3' : 'p-2'} space-y-1 flex-1`}>
+      {/* ── Navigation ── */}
+      <nav className={`${isOpen ? 'p-3' : 'p-2'} flex-1 space-y-0.5 overflow-y-auto`}>
         {isOpen ? (
           sections.map((section) => {
             const expanded = expandedSections[section.key];
             return (
-              <div key={section.key}>
-                <div className="flex items-center w-full rounded-lg hover:bg-gray-100 transition-colors">
+              <div key={section.key} className="mb-1">
+                {/* Section header */}
+                <div className="flex items-center justify-between px-2 pt-3 pb-1">
                   <Link
                     href={section.href}
-                    className={`flex-1 px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-l-lg ${
-                      isActive(section.href) ? 'text-blue-700' : 'text-gray-500'
-                    }`}
+                    className="flex-1 text-[10px] font-semibold uppercase tracking-widest transition-colors hover:text-indigo-400"
+                    style={{ color: 'rgba(100,116,139,0.9)', letterSpacing: '0.12em' }}
                   >
                     {section.label}
                   </Link>
                   <button
                     type="button"
                     onClick={(e) => toggleSection(e, section.key)}
-                    aria-label={expanded ? 'Comprimi sezione' : 'Espandi sezione'}
-                    className="px-3 py-2 text-gray-400 hover:text-gray-700 rounded-r-lg"
+                    aria-label={expanded ? 'Comprimi' : 'Espandi'}
+                    className="p-0.5 rounded transition-colors"
+                    style={{ color: 'rgba(100,116,139,0.7)' }}
                   >
                     <svg
-                      className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
                 </div>
 
+                {/* Items */}
                 {expanded && (
-                  <div className="mt-1 space-y-0.5">
+                  <div className="space-y-0.5">
                     {section.items.map((item) => {
                       const active = isActive(item.href);
                       return (
                         <Link
                           key={item.href}
                           href={item.href}
-                          className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
-                            active
-                              ? 'bg-blue-50 text-blue-700 font-medium'
-                              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                          }`}
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 group"
+                          style={active ? activeItemStyle : inactiveItemStyle}
+                          onMouseEnter={(e) => {
+                            if (!active) {
+                              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
+                              (e.currentTarget as HTMLElement).style.color = 'rgba(226,232,240,1)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!active) {
+                              (e.currentTarget as HTMLElement).style.background = '';
+                              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,0.85)';
+                            }
+                          }}
                         >
-                          <span className="text-base leading-none">{item.icon}</span>
-                          <span>{item.label}</span>
+                          <span className="text-base leading-none w-5 text-center flex-shrink-0">{item.icon}</span>
+                          <span className="truncate">{item.label}</span>
                         </Link>
                       );
                     })}
@@ -200,8 +231,8 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
             );
           })
         ) : (
-          /* Vista collassata: solo icone centrate */
-          <div className="flex flex-col gap-0.5">
+          /* ── Vista collassata: icone centrate ── */
+          <div className="flex flex-col gap-0.5 pt-1">
             {allItems.map((item) => {
               const active = isActive(item.href);
               return (
@@ -209,11 +240,23 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                   key={item.href}
                   href={item.href}
                   title={item.label}
-                  className={`flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-colors text-lg ${
-                    active
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
+                  className="flex items-center justify-center w-10 h-10 mx-auto rounded-xl text-lg transition-all duration-150"
+                  style={active
+                    ? { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc' }
+                    : { color: 'rgba(148,163,184,0.7)' }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!active) {
+                      (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)';
+                      (e.currentTarget as HTMLElement).style.color = 'rgba(226,232,240,1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) {
+                      (e.currentTarget as HTMLElement).style.background = '';
+                      (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,0.7)';
+                    }
+                  }}
                 >
                   {item.icon}
                 </Link>
@@ -223,16 +266,39 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
         )}
       </nav>
 
-      {/* Help / bottom */}
-      <div className={`border-t border-gray-200 bg-gray-50 ${isOpen ? 'p-3' : 'p-2'}`}>
+      {/* ── Bottom ── */}
+      <div
+        className={`flex-shrink-0 ${isOpen ? 'p-3' : 'p-2'}`}
+        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+      >
         {isOpen ? (
-          <button className="w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg text-center transition-colors">
+          <button
+            className="w-full px-3 py-2 text-sm rounded-xl text-center transition-all duration-150"
+            style={{ color: 'rgba(100,116,139,0.8)' }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)';
+              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,1)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = '';
+              (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.8)';
+            }}
+          >
             💬 Aiuto
           </button>
         ) : (
           <button
             title="Aiuto"
-            className="flex items-center justify-center w-10 h-10 mx-auto rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors text-lg"
+            className="flex items-center justify-center w-10 h-10 mx-auto rounded-xl text-lg transition-all duration-150"
+            style={{ color: 'rgba(100,116,139,0.7)' }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)';
+              (e.currentTarget as HTMLElement).style.color = 'rgba(148,163,184,1)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = '';
+              (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.7)';
+            }}
           >
             💬
           </button>

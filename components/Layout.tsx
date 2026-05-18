@@ -20,7 +20,7 @@ export default function Layout({
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen" style={{ background: 'linear-gradient(135deg, #f1f5f9 0%, #eef2ff 55%, #f0f9ff 100%)' }}>
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
