@@ -20,16 +20,43 @@ export const onCallAPI = {
 
   async getOnCallForDate(date: string) {
     return log.withTiming('getOnCallForDate', { date }, async () => {
-      const startDate = formatDate(getWeekStart(new Date(date)));
+      // 1. Controlla prima la tabella giornaliera (nuova)
+      const { data: daily, error: dailyErr } = await supabase
+        .from('on_call_daily_assignments')
+        .select('*, users:user_id(id, full_name, email)')
+        .eq('assignment_date', date)
+        .maybeSingle();
 
+      if (!dailyErr && daily) {
+        // Normalizza verso la stessa forma che si aspetta il client
+        // (week_start_date / week_end_date vengono calcolati dal blocco corrente)
+        const d = new Date(date);
+        const dow = d.getDay();
+        const mon = new Date(d);
+        mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+
+        const result = [{
+          ...daily,
+          user: daily.users,
+          week_start_date: formatDate(mon),
+          week_end_date: formatDate(sun),
+        }];
+        log.info('getOnCallForDate', 'Trovato 1 reperibile (daily)', { date });
+        return result;
+      }
+
+      // 2. Fallback: tabella settimanale legacy
+      const startDate = formatDate(getWeekStart(new Date(date)));
       const { data, error } = await supabase
         .from('on_call_assignments')
-        .select(`*, users:user_id(id, full_name, email)`)
+        .select('*, users:user_id(id, full_name, email)')
         .eq('week_start_date', startDate);
 
       if (error) throw toAppError(error, 'Impossibile caricare la reperibilità di oggi');
       const result = (data || []).map((item: any) => ({ ...item, user: item.users }));
-      log.info('getOnCallForDate', `Trovati ${result.length} reperibili`, { date, startDate });
+      log.info('getOnCallForDate', `Trovati ${result.length} reperibili (weekly fallback)`, { date, startDate });
       return result;
     });
   },

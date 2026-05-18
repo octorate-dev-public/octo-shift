@@ -141,8 +141,10 @@ export default function PublicOnCallPage() {
                     </p>
                     <p className="text-gray-500 text-sm truncate">{a.user?.email ?? '—'}</p>
                     <p className="text-gray-400 text-xs mt-1">
-                      dal {new Date(a.week_start_date).toLocaleDateString('it-IT')} al{' '}
-                      {new Date(a.week_end_date).toLocaleDateString('it-IT')}
+                      {a.week_start_date === a.week_end_date
+                        ? new Date(a.week_start_date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })
+                        : `dal ${new Date(a.week_start_date + 'T00:00:00').toLocaleDateString('it-IT')} al ${new Date(a.week_end_date + 'T00:00:00').toLocaleDateString('it-IT')}`
+                      }
                     </p>
                   </div>
                   <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold whitespace-nowrap">

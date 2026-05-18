@@ -60,19 +60,22 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
   const sections: MenuSection[] = [];
 
   if (userRole === 'admin') {
+    // ── Sezione amministrazione (solo admin) ──
     sections.push({ key: 'admin', label: 'Amministrazione', href: '/admin', items: adminMenuItems });
-  }
 
-  sections.push({
-    key: 'schedule',
-    label: 'Scheduling',
-    href: userRole === 'admin' ? '/admin/schedule' : '/schedule',
-    items: userRole === 'admin'
-      ? [{ label: 'Crea Schedule', href: '/admin/schedule', icon: '📋' }, ...commonMenuItems]
-      : [...userMenuItems, ...commonMenuItems],
-  });
+    // ── Scheduling e strumenti condivisi ──
+    sections.push({
+      key: 'schedule',
+      label: 'Scheduling',
+      href: '/admin/schedule',
+      items: [
+        { label: 'Crea Schedule',     href: '/admin/schedule', icon: '📋' },
+        { label: 'Calendario',        href: '/calendar',       icon: '📆' },
+        { label: 'Chi è Reperibile',  href: '/on-call',        icon: '📞' },
+      ],
+    });
 
-  if (userRole === 'admin') {
+    // ── Gestione (admin) ──
     sections.push({
       key: 'management',
       label: 'Gestione',
@@ -82,6 +85,27 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
         { label: 'Reperibilità',       href: '/admin/on-call',  icon: '📞' },
         { label: 'Richieste Scambio',  href: '/admin/swaps',    icon: '🔄' },
       ],
+    });
+
+    // ── Sezione personale: l'admin può usare tutte le funzioni utente ──
+    sections.push({
+      key: 'personal',
+      label: 'Personale',
+      href: '/schedule',
+      items: [
+        { label: 'Il mio Schedule',    href: '/schedule',    icon: '📅' },
+        { label: 'Le mie Preferenze',  href: '/preferences', icon: '⭐' },
+        { label: 'I miei Scambi',      href: '/swaps',       icon: '🔄' },
+        { label: 'Ferie e Permessi',   href: '/leave',       icon: '✈️' },
+      ],
+    });
+  } else {
+    // ── Utente normale ──
+    sections.push({
+      key: 'schedule',
+      label: 'Scheduling',
+      href: '/schedule',
+      items: [...userMenuItems, ...commonMenuItems],
     });
   }
 
