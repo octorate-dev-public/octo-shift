@@ -74,9 +74,9 @@ export default function AdminSettingsPage() {
       } else {
         setWorkDays(DEFAULT_WORK_DAYS);
       }
-      // KEROS: carica username; la password non viene esposta dal GET /api/settings
-      // (filtrata lato server). Invece carichiamo solo se è configurata.
-      if (data.keros_username) setKerosUsername(data.keros_username);
+      // KEROS: il server non restituisce mai i valori in chiaro.
+      // Riceviamo solo il flag che indica se sono stati configurati.
+      if (data.keros_username_set === 'true') setKerosPasswordSet(true); // badge "Configurato"
       if (data.keros_password_set === 'true') setKerosPasswordSet(true);
     } catch (err: unknown) {
       console.error('Errore nel caricamento delle impostazioni:', err);
@@ -129,21 +129,31 @@ export default function AdminSettingsPage() {
   // ── Funzioni KEROS ──────────────────────────────────────────────────────────
 
   const handleSaveKeros = async () => {
-    if (!kerosUsername.trim()) {
-      setKerosFeedback({ status: 'error', message: 'Inserisci username KEROS.' });
+    // Prima configurazione: entrambi i campi obbligatori
+    if (!kerosPasswordSet && (!kerosUsername.trim() || !kerosPassword.trim())) {
+      setKerosFeedback({ status: 'error', message: 'Inserisci username e password per la prima configurazione.' });
+      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 3000);
+      return;
+    }
+    // Aggiornamento: almeno un campo deve essere valorizzato
+    if (kerosPasswordSet && !kerosUsername.trim() && !kerosPassword.trim()) {
+      setKerosFeedback({ status: 'error', message: 'Inserisci almeno username o password da aggiornare.' });
       setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 3000);
       return;
     }
     setKerosFeedback({ status: 'loading', message: '' });
     try {
-      await api.post('/api/settings', { key: 'keros_username', value: kerosUsername.trim() });
-      if (kerosPassword) {
-        await api.post('/api/settings', { key: 'keros_password', value: kerosPassword });
-        setKerosPasswordSet(true);
-        setKerosPassword('');
+      if (kerosUsername.trim()) {
+        await api.post('/api/settings', { key: 'keros_username', value: kerosUsername.trim() });
       }
-      setKerosFeedback({ status: 'success', message: 'Credenziali KEROS salvate.' });
-      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 3000);
+      if (kerosPassword.trim()) {
+        await api.post('/api/settings', { key: 'keros_password', value: kerosPassword.trim() });
+      }
+      setKerosPasswordSet(true);
+      setKerosUsername('');
+      setKerosPassword('');
+      setKerosFeedback({ status: 'success', message: 'Credenziali salvate e cifrate con AES-256-GCM.' });
+      setTimeout(() => setKerosFeedback(DEFAULT_FEEDBACK), 4000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Errore salvataggio.';
       setKerosFeedback({ status: 'error', message });
@@ -325,26 +335,44 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="font-semibold text-gray-900">Integrazione KEROS HR</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Credenziali del responsabile — salvate in Supabase, mai su Vercel
+                Cifrate con AES-256-GCM · Solo in scrittura · Non visibili dopo il salvataggio
               </p>
             </div>
-            {kerosPasswordSet && (
-              <span className="ml-auto text-xs bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
-                ✓ Configurato
-              </span>
-            )}
+            <span className={`ml-auto text-xs px-2.5 py-1 rounded-full font-medium ${
+              kerosPasswordSet
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-amber-100 text-amber-700'
+            }`}>
+              {kerosPasswordSet ? '🔒 Configurato' : '⚠️ Non configurato'}
+            </span>
           </div>
+
+          {/* Banner informativo se già configurato */}
+          {kerosPasswordSet && (
+            <div className="mx-6 mt-5 px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg flex items-start gap-2.5 text-sm text-slate-600">
+              <span className="flex-shrink-0 mt-0.5">🔐</span>
+              <span>
+                Le credenziali sono salvate cifrate. Per sicurezza non vengono mai mostrate.
+                Per aggiornarle inserisci i nuovi valori qui sotto — lascia vuoto il campo che non vuoi cambiare.
+              </span>
+            </div>
+          )}
+
           <div className="px-6 py-5 space-y-4">
             {/* Username */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Username KEROS
+                {kerosPasswordSet && (
+                  <span className="ml-2 text-xs font-normal text-gray-400">— lascia vuoto per non cambiarlo</span>
+                )}
               </label>
               <input
                 type="text"
                 value={kerosUsername}
                 onChange={(e) => setKerosUsername(e.target.value)}
-                placeholder="es. COGNOME.NOME"
+                placeholder={kerosPasswordSet ? '(non modificare)' : 'es. COGNOME.NOME'}
+                autoComplete="off"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
               />
             </div>
@@ -353,8 +381,8 @@ export default function AdminSettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Password KEROS
-                {kerosPasswordSet && !kerosPassword && (
-                  <span className="ml-2 text-xs font-normal text-gray-400">(già configurata — lascia vuoto per non cambiarla)</span>
+                {kerosPasswordSet && (
+                  <span className="ml-2 text-xs font-normal text-gray-400">— lascia vuoto per non cambiarla</span>
                 )}
               </label>
               <div className="relative">
@@ -362,7 +390,8 @@ export default function AdminSettingsPage() {
                   type={kerosShowPassword ? 'text' : 'password'}
                   value={kerosPassword}
                   onChange={(e) => setKerosPassword(e.target.value)}
-                  placeholder={kerosPasswordSet ? '••••••••••••' : 'Inserisci password'}
+                  placeholder={kerosPasswordSet ? '(non modificare)' : 'Inserisci password'}
+                  autoComplete="new-password"
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
                 />
                 <button
@@ -380,8 +409,9 @@ export default function AdminSettingsPage() {
             <div className="flex gap-2">
               <button
                 onClick={handleTestKeros}
-                disabled={kerosTestFeedback.status === 'loading'}
-                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+                disabled={kerosTestFeedback.status === 'loading' || !kerosPasswordSet}
+                title={!kerosPasswordSet ? 'Salva prima le credenziali' : ''}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {kerosTestFeedback.status === 'loading' ? '⏳ Test...' : '🔌 Testa connessione'}
               </button>
@@ -390,7 +420,7 @@ export default function AdminSettingsPage() {
                 disabled={kerosFeedback.status === 'loading'}
                 className="flex-1 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 text-sm"
               >
-                {kerosFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva credenziali'}
+                {kerosFeedback.status === 'loading' ? 'Cifratura...' : kerosPasswordSet ? 'Aggiorna credenziali' : 'Salva e cifra'}
               </button>
             </div>
 

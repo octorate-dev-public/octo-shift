@@ -305,19 +305,41 @@ export class KerosClient {
 
   /**
    * Autentica sulla piattaforma KEROS.
-   * Lancia un'eccezione se il login fallisce.
+   * Log dettagliato ad ogni step — in caso di ko spiega il motivo esatto.
    */
   async login(username: string, password: string): Promise<void> {
-    log.info('login', `Autenticazione KEROS per ${username}`);
+    log.info('login', `[KEROS 1/2] Inizio autenticazione per utente "${username}"`);
 
-    // 1. GET pagina login → GXState
-    const loginPage = await this.req(`${BASE}/servlet/hlogin`);
-    if (!loginPage.ok) throw new Error(`KEROS login page HTTP ${loginPage.status}`);
+    // ── Step 1: GET pagina login ──────────────────────────────────────────────
+    log.info('login', `[KEROS 1/2 · step 1] GET ${BASE}/servlet/hlogin`);
+    let loginPage: Response;
+    try {
+      loginPage = await this.req(`${BASE}/servlet/hlogin`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('login', '[KEROS 1/2 · step 1] NETWORK ERROR — impossibile raggiungere il server KEROS', new Error(msg));
+      throw new Error(`Errore di rete verso KEROS: ${msg}. Verifica che il server sia raggiungibile.`);
+    }
+
+    log.info('login', `[KEROS 1/2 · step 1] Risposta HTTP ${loginPage.status} ${loginPage.statusText}`);
+    if (!loginPage.ok) {
+      log.error('login', `[KEROS 1/2 · step 1] KO — status ${loginPage.status}`, new Error(`HTTP ${loginPage.status}`));
+      throw new Error(`Pagina login KEROS non disponibile (HTTP ${loginPage.status}). Il servizio potrebbe essere in manutenzione.`);
+    }
+
     const loginHtml = await loginPage.text();
-    const gxState = extractGXState(loginHtml);
-    if (!gxState || gxState === '{}') throw new Error('GXState non trovato nella pagina di login KEROS');
+    log.info('login', `[KEROS 1/2 · step 1] HTML ricevuto (${loginHtml.length} byte)`);
 
-    // 2. POST credenziali
+    const gxState = extractGXState(loginHtml);
+    if (!gxState || gxState === '{}') {
+      log.error('login', '[KEROS 1/2 · step 1] KO — GXState non trovato nell\'HTML', new Error('missing GXState'));
+      log.info('login', `[DEBUG] Primi 500 char HTML: ${loginHtml.slice(0, 500)}`);
+      throw new Error('GXState non trovato nella pagina di login KEROS. La struttura della pagina potrebbe essere cambiata.');
+    }
+    log.info('login', `[KEROS 1/2 · step 1] GXState estratto (${gxState.length} byte) ✓`);
+
+    // ── Step 2: POST credenziali ──────────────────────────────────────────────
+    log.info('login', `[KEROS 1/2 · step 2] POST credenziali per "${username}"`);
     const body = new URLSearchParams({
       vUSER1: username,
       vPASSWORD: password,
@@ -326,52 +348,124 @@ export class KerosClient {
       GXState: gxState,
     });
 
-    const loginRes = await this.req(`${BASE}/servlet/hlogin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
-
-    const loginResHtml = await loginRes.text();
-
-    // Semplice controllo: se la risposta contiene ancora il form di login → credenziali errate
-    if (loginResHtml.includes('vUSER1') && loginResHtml.includes('vPASSWORD')) {
-      throw new Error('Credenziali KEROS non valide');
+    let loginRes: Response;
+    try {
+      loginRes = await this.req(`${BASE}/servlet/hlogin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('login', '[KEROS 1/2 · step 2] NETWORK ERROR durante il POST login', new Error(msg));
+      throw new Error(`Errore di rete durante il login KEROS: ${msg}`);
     }
 
-    log.info('login', 'Login KEROS riuscito');
+    log.info('login', `[KEROS 1/2 · step 2] Risposta HTTP ${loginRes.status} (dopo redirect: ${loginRes.url})`);
+
+    const loginResHtml = await loginRes.text();
+    log.info('login', `[KEROS 1/2 · step 2] HTML risposta (${loginResHtml.length} byte)`);
+
+    // Diagnosi dettagliata del fallimento login
+    if (loginResHtml.includes('vUSER1') && loginResHtml.includes('vPASSWORD')) {
+      // Il server ha restituito di nuovo il form di login → credenziali errate
+      // Cerca messaggi di errore noti nell'HTML
+      const errorPatterns = [
+        { pattern: /password.*errat/i, msg: 'Password errata' },
+        { pattern: /utente.*non.*trov/i, msg: 'Utente non trovato' },
+        { pattern: /account.*blocc/i, msg: 'Account bloccato' },
+        { pattern: /accesso.*negat/i, msg: 'Accesso negato' },
+        { pattern: /credenziali.*non.*valid/i, msg: 'Credenziali non valide' },
+        { pattern: /error/i, msg: 'Errore generico' },
+      ];
+
+      let detectedReason = 'Credenziali non valide (il server ha restituito nuovamente il form di login)';
+      for (const { pattern, msg } of errorPatterns) {
+        if (pattern.test(loginResHtml)) {
+          detectedReason = msg;
+          break;
+        }
+      }
+
+      log.error('login', `[KEROS 1/2 · step 2] KO — login fallito: ${detectedReason}`, new Error('login_failed'));
+      log.info('login', `[DEBUG] URL finale dopo redirect: ${loginRes.url}`);
+      log.info('login', `[DEBUG] Cookies presenti: ${this.jar.header().slice(0, 200)}`);
+      throw new Error(`Login KEROS fallito: ${detectedReason}. Verifica username ("${username}") e password in Admin → Impostazioni.`);
+    }
+
+    // Verifica che la sessione sia stata stabilita correttamente
+    const cookies = this.jar.header();
+    if (!cookies) {
+      log.warn('login', '[KEROS 1/2 · step 2] ⚠️ Nessun cookie ricevuto dopo login — la sessione potrebbe non essere valida');
+    } else {
+      log.info('login', `[KEROS 1/2 · step 2] Cookie di sessione ricevuti: ${cookies.split(';').length} cookie ✓`);
+    }
+
+    log.info('login', `[KEROS 1/2 · step 2] Login riuscito ✓ — URL post-login: ${loginRes.url}`);
   }
 
   /**
    * Recupera le autorizzazioni (ferie/permessi) dalla pagina responsabile.
    */
   async fetchLeaves(filters: KerosFilters = {}): Promise<KerosEntry[]> {
-    log.info('fetchLeaves', 'Recupero autorizzazioni KEROS', { filters });
+    log.info('fetchLeaves', '[KEROS 2/2] Inizio recupero autorizzazioni', { filters });
 
-    // 3. GET pagina autorizzazioni → GXState fresco
-    const authPage = await this.req(`${BASE}/servlet/hgestrautorresp`);
-    if (!authPage.ok) throw new Error(`KEROS auth page HTTP ${authPage.status}`);
+    // ── Step 3: GET pagina autorizzazioni ─────────────────────────────────────
+    log.info('fetchLeaves', `[KEROS 2/2 · step 3] GET ${BASE}/servlet/hgestrautorresp`);
+    let authPage: Response;
+    try {
+      authPage = await this.req(`${BASE}/servlet/hgestrautorresp`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('fetchLeaves', '[KEROS 2/2 · step 3] NETWORK ERROR', new Error(msg));
+      throw new Error(`Errore di rete recuperando la pagina autorizzazioni: ${msg}`);
+    }
+
+    log.info('fetchLeaves', `[KEROS 2/2 · step 3] HTTP ${authPage.status} — URL: ${authPage.url}`);
+    if (!authPage.ok) {
+      log.error('fetchLeaves', `[KEROS 2/2 · step 3] KO — HTTP ${authPage.status}`, new Error(`HTTP ${authPage.status}`));
+      throw new Error(`Pagina autorizzazioni KEROS non disponibile (HTTP ${authPage.status}). La sessione potrebbe essere scaduta.`);
+    }
+
     const authHtml = await authPage.text();
-    const rawGxState = extractGXState(authHtml);
-    if (!rawGxState || rawGxState === '{}') throw new Error('GXState non trovato nella pagina autorizzazioni KEROS');
+    log.info('fetchLeaves', `[KEROS 2/2 · step 3] HTML ricevuto (${authHtml.length} byte)`);
 
-    // 4. Modifica GXState: imposta l'evento Cerca
+    // Controlla se siamo stati reindirizzati al login (sessione scaduta)
+    if (authHtml.includes('vUSER1') && authHtml.includes('vPASSWORD')) {
+      log.error('fetchLeaves', '[KEROS 2/2 · step 3] KO — reindirizzato al login, sessione non stabilita', new Error('session_invalid'));
+      throw new Error('La sessione KEROS non è stata stabilita correttamente. Il login potrebbe essere fallito silenziosamente.');
+    }
+
+    const rawGxState = extractGXState(authHtml);
+    if (!rawGxState || rawGxState === '{}') {
+      log.error('fetchLeaves', '[KEROS 2/2 · step 3] KO — GXState non trovato', new Error('missing GXState'));
+      log.info('fetchLeaves', `[DEBUG] Primi 300 char HTML: ${authHtml.slice(0, 300)}`);
+      throw new Error('GXState non trovato nella pagina autorizzazioni KEROS. Struttura pagina inaspettata.');
+    }
+    log.info('fetchLeaves', `[KEROS 2/2 · step 3] GXState estratto ✓`);
+
+    // ── Step 4: modifica GXState con evento Cerca ─────────────────────────────
+    log.info('fetchLeaves', '[KEROS 2/2 · step 4] Impostazione evento EENTER_MPAGE nel GXState');
     let gx: Record<string, unknown>;
     try {
       gx = JSON.parse(rawGxState);
-    } catch {
-      throw new Error('GXState KEROS non è JSON valido');
+    } catch (err: unknown) {
+      log.error('fetchLeaves', '[KEROS 2/2 · step 4] KO — GXState non è JSON valido', new Error(String(err)));
+      log.info('fetchLeaves', `[DEBUG] GXState raw (primi 200 char): ${rawGxState.slice(0, 200)}`);
+      throw new Error('GXState KEROS non è JSON valido. La struttura della pagina potrebbe essere cambiata.');
     }
     gx['_EventName'] = 'EENTER_MPAGE.';
     gx['_EventGridId'] = '';
     gx['_EventRowId'] = '';
     const gxState = JSON.stringify(gx);
+    log.info('fetchLeaves', `[KEROS 2/2 · step 4] GXState aggiornato con _EventName="EENTER_MPAGE." ✓`);
 
     // Data corrente per W0003vDATINISETTIMANA
     const today = new Date();
     const todayStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    // 5. POST ricerca
+    // ── Step 5: POST ricerca ─────────────────────────────────────────────────
+    log.info('fetchLeaves', `[KEROS 2/2 · step 5] POST ricerca — filtri: tipo=${filters.tipo || 'A'}, situazione=${filters.situazione || '2'}, da=${filters.dataInizio || 'tutti'}, a=${filters.dataFine || 'tutti'}`);
     const params = new URLSearchParams({
       vSTROPZIONESEARCH_MPAGE: '',
       MPGridmenuContainerDataV: '[]',
@@ -402,17 +496,65 @@ export class KerosClient {
       params.set(`W0003vSTRAUTORSTORICIZ_${String(i).padStart(4, '0')}`, '');
     }
 
-    const searchRes = await this.req(`${BASE}/servlet/hgestrautorresp?0,,,,0`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
+    let searchRes: Response;
+    try {
+      searchRes = await this.req(`${BASE}/servlet/hgestrautorresp?0,,,,0`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('fetchLeaves', '[KEROS 2/2 · step 5] NETWORK ERROR durante il POST ricerca', new Error(msg));
+      throw new Error(`Errore di rete durante la ricerca KEROS: ${msg}`);
+    }
 
-    if (!searchRes.ok) throw new Error(`KEROS search HTTP ${searchRes.status}`);
+    log.info('fetchLeaves', `[KEROS 2/2 · step 5] HTTP ${searchRes.status} — URL: ${searchRes.url}`);
+
+    if (!searchRes.ok) {
+      log.error('fetchLeaves', `[KEROS 2/2 · step 5] KO — HTTP ${searchRes.status}`, new Error(`HTTP ${searchRes.status}`));
+      throw new Error(`Ricerca KEROS fallita (HTTP ${searchRes.status}).`);
+    }
+
     const searchHtml = await searchRes.text();
+    log.info('fetchLeaves', `[KEROS 2/2 · step 5] HTML risposta ricevuto (${searchHtml.length} byte)`);
 
+    // Controlla se la sessione è scaduta durante la ricerca
+    if (searchHtml.includes('vUSER1') && searchHtml.includes('vPASSWORD')) {
+      log.error('fetchLeaves', '[KEROS 2/2 · step 5] KO — sessione scaduta, reindirizzato al login', new Error('session_expired'));
+      throw new Error('Sessione KEROS scaduta durante la ricerca. Riprova.');
+    }
+
+    // ── Step 6: parsing griglia ───────────────────────────────────────────────
+    log.info('fetchLeaves', '[KEROS 2/2 · step 6] Parsing griglia HTML…');
     const entries = parseGrid(searchHtml);
-    log.info('fetchLeaves', `Trovate ${entries.length} voci di assenza da KEROS`);
+
+    // Log riepilogo per tipo
+    const vacation = entries.filter(e => e.leaveType === 'vacation').length;
+    const permission = entries.filter(e => e.leaveType === 'permission').length;
+    const unrecognized = entries.filter(e => e.leaveType === null).length;
+
+    log.info('fetchLeaves',
+      `[KEROS 2/2 · step 6] Parsing completato ✓ — ` +
+      `${entries.length} assenze totali: ${vacation} ferie (FERM), ${permission} ROL, ${unrecognized} non riconosciute`,
+    );
+
+    if (entries.length === 0) {
+      log.warn('fetchLeaves',
+        '[KEROS 2/2 · step 6] Nessuna riga estratta. Possibili cause: ' +
+        'nessuna assenza nel periodo, struttura HTML cambiata, o filtri troppo restrittivi.',
+      );
+      log.info('fetchLeaves', `[DEBUG] Numero di <tr> nell'HTML: ${(searchHtml.match(/<tr/gi) || []).length}`);
+    }
+
+    if (unrecognized > 0) {
+      const unknownCausal = [...new Set(entries.filter(e => !e.leaveType).map(e => e.causalizzazione))];
+      log.warn('fetchLeaves',
+        `[KEROS 2/2 · step 6] ${unrecognized} assenze con causalizzazione non riconosciuta: [${unknownCausal.join(', ')}]. ` +
+        `Solo FERM (ferie) e ROL (permessi) vengono importati.`,
+      );
+    }
+
     return entries;
   }
 }
