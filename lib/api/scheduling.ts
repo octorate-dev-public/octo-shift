@@ -89,20 +89,29 @@ export const schedulingAPI = {
       allPreferences.forEach((p) => prefMap.set(`${p.user_id}:${p.preference_date}`, p.preference));
       log.info('generateMonthlySchedule', `Caricate ${allPreferences.length} preferenze utente`);
 
-      // Scoring weights for equity-first office assignment:
-      //   equity term:    ogni giorno smart sopra la media vale EQUITY_WEIGHT punti di priorità ufficio
-      //   preference:     preferenza ufficio vale ~2 giorni smart di priorità
-      //   meeting bonus:  riunione di team aggiunge priorità ufficio
-      //   stable bonus:   utenti 'stable' ricevono ±STABLE_WEEKDAY_BONUS in base al giorno della settimana
-      //                   già assegnato (ripete lo stesso schema Mon/Wed/Fri ogni settimana)
-      //   random jitter:  utenti 'random' ricevono un piccolo rumore casuale per spezzare i pareggi
-      const EQUITY_WEIGHT       = 2;
-      const MEETING_BONUS       = 3;
-      const PREF_OFFICE_SCORE   = 4;
-      const PREF_INDIFF_SCORE   = 2;
-      // home preference = 0 (no office bonus)
-      const STABLE_WEEKDAY_BONUS = 1.5; // ≈ 0.75 giorni smart: crea coerenza senza battere l'equità
-      const RANDOM_JITTER        = 0.4; // ±0.2: rumore di pareggio per gli utenti 'random'
+      // ─── Gerarchia dei pesi (dal più importante al meno importante) ────────
+      //
+      //  1. EQUITÀ      → sempre primaria: chi ha più giorni smart va in ufficio
+      //  2. RIUNIONE    → quasi-garantisce ufficio nel giorno del team meeting
+      //  3. SENIORITY   → i più senior hanno priorità ufficio a parità di equity
+      //  4. PREFERENZA  → home/office/indifferente (seconda-scelta giornaliera)
+      //  5. STILE       → stable/random (tono fine, non deve battere i precedenti)
+      //
+      // Esempio: Devin (senior, riunione giovedì, preferenza stabile) deve
+      // andare in ufficio giovedì ANCHE se il suo pattern stabile dice smart.
+      // MEETING_BONUS (10) >> STABLE (-0.8) + qualsiasi equity ragionevole.
+
+      const EQUITY_WEIGHT    = 2;   // ogni giorno smart sopra la media = +2 office priority
+      const MEETING_BONUS    = 10;  // riunione → priorità ufficio quasi assoluta
+      const SENIORITY_BONUS  = 2;   // il più senior prende +2, il meno senior +0 (lineare)
+      const PREF_OFFICE_SCORE  = 3; // preferenza ufficio (secondaria a meeting+seniority)
+      const PREF_INDIFF_SCORE  = 1; // preferenza indifferente
+      // home preference = 0
+      const STABLE_WEEKDAY_BONUS = 0.8; // ±0.8: stile stabile crea coerenza ma NON batte riunioni
+      const RANDOM_JITTER        = 0.5; // ±0.25: variazione visibile ma subordinata a tutto
+
+      // Numero di utenti regular per normalizzare la seniority
+      const regularCount = sortedUsers.filter(u => !u.renounce_smart).length || 1;
 
       // Traccia i pattern weekday intra-mese per gli utenti 'stable'.
       // Se lunedì hanno avuto ufficio nelle settimane precedenti, oggi lunedì
@@ -233,31 +242,41 @@ export const schedulingAPI = {
           prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
 
         const scoreUser = (user: User): number => {
+          // 1. EQUITÀ — primaria
           const smartDays = userSmartDays.get(user.id) ?? 0;
           const equityScore = (smartDays - avgSmartDays) * EQUITY_WEIGHT;
-          const meetingBonus = meetingUserIds.has(user.id) ? MEETING_BONUS : 0;
-          const pref = getPref(user.id);
-          const prefScore = pref === 'office' ? PREF_OFFICE_SCORE : pref === 'indifferent' ? PREF_INDIFF_SCORE : 0;
-          const seniorityTiebreak = -(seniorityIndex.get(user.id) ?? 0) * 0.01;
 
-          // ── schedule_style bonus ────────────────────────────────────────────
-          // stable: se questo giorno della settimana è già stato assegnato in
-          //   questo mese, ripeti lo stesso tipo (ufficio=+bonus, smart=-bonus).
-          //   Se non ci sono dati ancora (prima settimana), nessun effetto.
-          // random: piccolo jitter casuale per rompere i pareggi in modo imprevedibile.
+          // 2. RIUNIONE — quasi-garantisce ufficio (10 punti >> qualsiasi altro termine)
+          const meetingBonus = meetingUserIds.has(user.id) ? MEETING_BONUS : 0;
+
+          // 3. SENIORITY — peso reale, non semplice tiebreaker.
+          //    Il più senior (index 0) prende SENIORITY_BONUS pieno,
+          //    il meno senior (index N-1) prende ~0. Scala lineare.
+          const idx = seniorityIndex.get(user.id) ?? 0;
+          const seniorityScore = ((regularCount - 1 - idx) / Math.max(regularCount - 1, 1)) * SENIORITY_BONUS;
+
+          // 4. PREFERENZA giornaliera (home/office/indifferente)
+          const pref = getPref(user.id);
+          const prefScore = pref === 'office'
+            ? PREF_OFFICE_SCORE
+            : pref === 'indifferent'
+            ? PREF_INDIFF_SCORE
+            : 0; // home = 0
+
+          // 5. STILE (stable/random) — subordinato a tutto il resto.
+          //    ±0.8 non può battere meeting (10) né seniority (0–2).
           let styleScore = 0;
           if (user.schedule_style === 'stable') {
             if (userOfficeWeekdays.get(user.id)?.has(dayOfWeek)) {
-              styleScore = +STABLE_WEEKDAY_BONUS; // ha già avuto ufficio questo giorno → preferisce ufficio
+              styleScore = +STABLE_WEEKDAY_BONUS;
             } else if (userSmartWeekdays.get(user.id)?.has(dayOfWeek)) {
-              styleScore = -STABLE_WEEKDAY_BONUS; // ha già avuto smart questo giorno → preferisce smart
+              styleScore = -STABLE_WEEKDAY_BONUS;
             }
           } else {
-            // random: jitter ±(RANDOM_JITTER/2)
             styleScore = (Math.random() - 0.5) * RANDOM_JITTER;
           }
 
-          return equityScore + meetingBonus + prefScore + styleScore + seniorityTiebreak;
+          return equityScore + meetingBonus + seniorityScore + prefScore + styleScore;
         };
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));
