@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 interface SidebarProps {
@@ -173,13 +172,13 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
               <div key={section.key} className="mb-1">
                 {/* Section header */}
                 <div className="flex items-center justify-between px-2 pt-3 pb-1">
-                  <Link
+                  <a
                     href={section.href}
                     className="flex-1 text-[10px] font-semibold uppercase tracking-widest transition-colors hover:text-indigo-400"
                     style={{ color: 'rgba(100,116,139,0.9)', letterSpacing: '0.12em' }}
                   >
                     {section.label}
-                  </Link>
+                  </a>
                   <button
                     type="button"
                     onClick={(e) => toggleSection(e, section.key)}
@@ -202,10 +201,10 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                     {section.items.map((item) => {
                       const active = isActive(item.href);
                       return (
-                        <Link
+                        <a
                           key={item.href}
                           href={item.href}
-                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 group"
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150"
                           style={active ? activeItemStyle : inactiveItemStyle}
                           onMouseEnter={(e) => {
                             if (!active) {
@@ -222,7 +221,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                         >
                           <span className="text-base leading-none w-5 text-center flex-shrink-0">{item.icon}</span>
                           <span className="truncate">{item.label}</span>
-                        </Link>
+                        </a>
                       );
                     })}
                   </div>
@@ -236,7 +235,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
             {allItems.map((item) => {
               const active = isActive(item.href);
               return (
-                <Link
+                <a
                   key={item.href}
                   href={item.href}
                   title={item.label}
@@ -259,7 +258,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                   }}
                 >
                   {item.icon}
-                </Link>
+                </a>
               );
             })}
           </div>
