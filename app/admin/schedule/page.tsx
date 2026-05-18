@@ -12,9 +12,16 @@ import { useAuth } from '@/lib/useAuth';
 
 export default function SchedulePage() {
   const { userId } = useAuth();
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth()); // 0-based
+  const [mounted, setMounted] = useState(false);
+  const [year, setYear] = useState(0);
+  const [month, setMonth] = useState(0); // 0-based
+
+  useEffect(() => {
+    const today = new Date();
+    setYear(today.getFullYear());
+    setMonth(today.getMonth());
+    setMounted(true);
+  }, []);
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
@@ -30,8 +37,10 @@ export default function SchedulePage() {
   const [showPreferences, setShowPreferences] = useState(true);
 
   useEffect(() => {
-    loadData();
-  }, [year, month]);
+    if (mounted) {
+      loadData();
+    }
+  }, [year, month, mounted]);
 
   const loadData = async () => {
     try {
@@ -147,6 +156,16 @@ export default function SchedulePage() {
     setYear(newDate.getFullYear());
     setMonth(newDate.getMonth()); // keep 0-based
   };
+
+  if (!mounted) {
+    return (
+      <Layout userRole="admin" userName="Admin">
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout userRole="admin" userName="Admin">

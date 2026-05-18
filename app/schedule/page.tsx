@@ -26,9 +26,18 @@ function formatDate(date: Date): string {
 }
 
 export default function SchedulePage() {
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [mounted, setMounted] = useState(false);
+  const [today, setToday] = useState<Date | null>(null);
+  const [year, setYear] = useState(0);
+  const [month, setMonth] = useState(0);
+
+  useEffect(() => {
+    const t = new Date();
+    setToday(t);
+    setYear(t.getFullYear());
+    setMonth(t.getMonth());
+    setMounted(true);
+  }, []);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
@@ -57,9 +66,9 @@ export default function SchedulePage() {
   }, [userId]);
 
   useEffect(() => {
-    if (!authChecked || !userId) return;
+    if (!mounted || !authChecked || !userId) return;
     loadShifts();
-  }, [authChecked, userId, year, month]);
+  }, [authChecked, userId, year, month, mounted]);
 
   const loadShifts = async () => {
     if (!userId) return;
@@ -93,6 +102,16 @@ export default function SchedulePage() {
     acc[s.shift_type] = (acc[s.shift_type] ?? 0) + 1;
     return acc;
   }, {});
+
+  if (!mounted || !today) {
+    return (
+      <Layout userRole="user" userName={userName}>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout userRole="user" userName={userName}>

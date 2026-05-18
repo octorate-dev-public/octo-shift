@@ -9,9 +9,16 @@ import { useAuth } from '@/lib/useAuth';
 
 export default function CalendarPage() {
   const { userId, userName, userRole, logout } = useAuth();
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [mounted, setMounted] = useState(false);
+  const [year, setYear] = useState(0);
+  const [month, setMonth] = useState(0);
+
+  useEffect(() => {
+    const today = new Date();
+    setYear(today.getFullYear());
+    setMonth(today.getMonth());
+    setMounted(true);
+  }, []);
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -21,8 +28,10 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
-  }, [year, month]);
+    if (mounted) {
+      loadData();
+    }
+  }, [year, month, mounted]);
 
   const loadData = async () => {
     try {
@@ -59,6 +68,16 @@ export default function CalendarPage() {
     setYear(newDate.getFullYear());
     setMonth(newDate.getMonth());
   };
+
+  if (!mounted) {
+    return (
+      <Layout userRole={userRole} userName={userName} onLogout={logout}>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout userRole={userRole} userName={userName} onLogout={logout}>
