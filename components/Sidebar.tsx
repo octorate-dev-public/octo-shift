@@ -118,47 +118,57 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
   const allItems: MenuItem[] = sections.flatMap((s) => s.items);
 
-  // Stili inline per dark glass (non disponibili come classi Tailwind senza config custom)
-  const sidebarStyle: React.CSSProperties = {
-    background: 'linear-gradient(180deg, #0f172a 0%, #131b2e 60%, #0f172a 100%)',
-    borderRight: '1px solid rgba(255,255,255,0.05)',
-  };
-
   const activeItemStyle: React.CSSProperties = {
-    background: 'rgba(99,102,241,0.18)',
-    color: '#a5b4fc',
-    borderLeft: '2px solid #6366f1',
-    paddingLeft: 'calc(12px - 2px)',
+    background: 'rgba(99,102,241,0.22)',
+    color: '#c7d2fe',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 16px rgba(99,102,241,0.12)',
   };
 
   const inactiveItemStyle: React.CSSProperties = {
-    color: 'rgba(148,163,184,0.85)',
+    color: 'rgba(148,163,184,0.7)',
   };
 
   return (
     <aside
-      className={`${isOpen ? 'w-64' : 'w-16'} shrink-0 h-screen overflow-y-auto transition-all duration-300 sticky top-0 z-30 flex flex-col`}
-      style={sidebarStyle}
+      className={`${isOpen ? 'w-64' : 'w-16'} shrink-0 h-screen overflow-y-auto transition-all duration-[280ms] cubic-bezier(0.4,0,0.2,1) sticky top-0 z-30 flex flex-col`}
+      style={{
+        /* Liquid glass dark — il mesh del body è visibile attraverso il blur */
+        background: 'rgba(6, 8, 24, 0.78)',
+        backdropFilter: 'blur(56px) saturate(180%) brightness(0.85)',
+        WebkitBackdropFilter: 'blur(56px) saturate(180%) brightness(0.85)',
+        borderRight: '0.5px solid rgba(255,255,255,0.08)',
+        /* Specular highlight sul bordo sinistro */
+        boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.04), 4px 0 40px rgba(0,0,0,0.4)',
+      }}
     >
       {/* ── Logo ── */}
       <div
         className={`${isOpen ? 'px-4 py-4' : 'px-2 py-3'} flex items-center ${isOpen ? 'gap-3' : 'justify-center'} flex-shrink-0`}
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ borderBottom: '0.5px solid rgba(255,255,255,0.07)' }}
       >
-        <div className="flex-shrink-0 w-9 h-9 rounded-xl overflow-hidden shadow-lg ring-1 ring-white/10">
+        <div
+          style={{
+            width: 36, height: 36, borderRadius: 12, overflow: 'hidden', flexShrink: 0,
+            boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 4px 16px rgba(0,0,0,0.4)',
+          }}
+        >
           <Image
             src="/project_icon.png"
             alt="Logo"
             width={36}
             height={36}
-            className="w-full h-full object-cover"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             priority
           />
         </div>
         {isOpen && (
           <div>
-            <p className="font-bold text-white text-sm leading-tight">SmartWork</p>
-            <p className="text-[11px] font-medium" style={{ color: 'rgba(148,163,184,0.7)' }}>Scheduler</p>
+            <p style={{ fontWeight: 700, fontSize: 14, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+              SmartWork
+            </p>
+            <p style={{ fontSize: 10.5, fontWeight: 500, color: 'rgba(148,163,184,0.6)', letterSpacing: '0.03em' }}>
+              Scheduler
+            </p>
           </div>
         )}
       </div>
@@ -174,8 +184,9 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                 <div className="flex items-center justify-between px-2 pt-3 pb-1">
                   <a
                     href={section.href}
-                    className="flex-1 text-[10px] font-semibold uppercase tracking-widest transition-colors hover:text-indigo-400"
-                    style={{ color: 'rgba(100,116,139,0.9)', letterSpacing: '0.12em' }}
+                    style={{ flex: 1, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'rgba(100,116,139,0.65)', textDecoration: 'none', transition: 'color 0.15s' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(100,116,139,0.65)'; }}
                   >
                     {section.label}
                   </a>
@@ -268,7 +279,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
       {/* ── Bottom ── */}
       <div
         className={`flex-shrink-0 ${isOpen ? 'p-3' : 'p-2'}`}
-        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ borderTop: '0.5px solid rgba(255,255,255,0.07)' }}
       >
         {isOpen ? (
           <button

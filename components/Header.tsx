@@ -12,64 +12,103 @@ interface HeaderProps {
 export default function Header({ userName, userRole, onMenuClick, onLogout }: HeaderProps) {
   const initials = userName
     .split(' ')
+    .filter(Boolean)
     .map((p) => p[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2);
+    .slice(0, 2) || '?';
 
   return (
     <header
-      className="shrink-0 z-20 px-5 py-3 flex items-center justify-between"
+      className="shrink-0 z-20 h-14 px-4 flex items-center justify-between"
       style={{
-        background: 'rgba(255,255,255,0.72)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,0.55)',
-        boxShadow: '0 1px 12px rgba(15,23,42,0.06)',
+        background: 'rgba(255, 255, 255, 0.055)',
+        backdropFilter: 'blur(48px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(48px) saturate(160%)',
+        borderBottom: '0.5px solid rgba(255, 255, 255, 0.10)',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.15)',
       }}
     >
       {/* Hamburger */}
       <button
         onClick={onMenuClick}
         aria-label="Toggle menu"
-        className="w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-200 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+        style={{
+          width: 36, height: 36, borderRadius: 10, display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(255,255,255,0.07)',
+          border: '0.5px solid rgba(255,255,255,0.1)',
+          color: 'rgba(255,255,255,0.7)',
+          cursor: 'pointer', transition: 'all 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          const el = e.currentTarget;
+          el.style.background = 'rgba(99,102,241,0.25)';
+          el.style.borderColor = 'rgba(99,102,241,0.4)';
+          el.style.color = '#a5b4fc';
+        }}
+        onMouseLeave={(e) => {
+          const el = e.currentTarget;
+          el.style.background = 'rgba(255,255,255,0.07)';
+          el.style.borderColor = 'rgba(255,255,255,0.1)';
+          el.style.color = 'rgba(255,255,255,0.7)';
+        }}
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       </button>
 
-      {/* Right */}
-      <div className="flex items-center gap-2">
-        {/* Role badge */}
+      {/* Destra */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+        {/* Badge ruolo */}
         <span
-          className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold"
           style={{
+            display: 'inline-flex', alignItems: 'center',
+            padding: '3px 10px', borderRadius: 999,
+            fontSize: 11, fontWeight: 600, letterSpacing: '0.03em',
             background: userRole === 'admin'
-              ? 'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(79,70,229,0.08))'
-              : 'linear-gradient(135deg,rgba(16,185,129,0.12),rgba(5,150,105,0.08))',
-            color: userRole === 'admin' ? '#6366f1' : '#059669',
-            border: `1px solid ${userRole === 'admin' ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.2)'}`,
+              ? 'rgba(99,102,241,0.2)'
+              : 'rgba(16,185,129,0.2)',
+            color: userRole === 'admin' ? '#a5b4fc' : '#6ee7b7',
+            border: `0.5px solid ${userRole === 'admin' ? 'rgba(99,102,241,0.35)' : 'rgba(16,185,129,0.35)'}`,
           }}
         >
-          {userRole === 'admin' ? '⚡ Admin' : '👤 Utente'}
+          {userRole === 'admin' ? '⚡ Admin' : '● Utente'}
         </span>
 
         {/* User chip */}
         <div
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl"
           style={{
-            background: 'rgba(255,255,255,0.65)',
-            border: '1px solid rgba(203,213,225,0.5)',
+            display: 'flex', alignItems: 'center', gap: 9,
+            padding: '5px 12px 5px 5px', borderRadius: 999,
+            background: 'rgba(255,255,255,0.07)',
+            border: '0.5px solid rgba(255,255,255,0.12)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
           }}
         >
+          {/* Avatar */}
           <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' }}
+            style={{
+              width: 28, height: 28, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700, color: 'white',
+              background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+              boxShadow: '0 0 12px rgba(99,102,241,0.5)',
+              flexShrink: 0,
+            }}
           >
-            {initials || '?'}
+            {initials}
           </div>
-          <span className="text-sm font-medium text-slate-700 hidden sm:block max-w-[120px] truncate">
+          <span
+            className="hidden sm:block"
+            style={{
+              fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em',
+              color: 'rgba(255,255,255,0.85)',
+              maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
             {userName}
           </span>
         </div>
@@ -79,10 +118,27 @@ export default function Header({ userName, userRole, onMenuClick, onLogout }: He
           onClick={onLogout}
           aria-label="Esci"
           title="Esci"
-          className="w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-200 text-slate-400 hover:text-rose-500 hover:bg-rose-50"
+          style={{
+            width: 36, height: 36, borderRadius: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none',
+            color: 'rgba(255,255,255,0.35)', cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget;
+            el.style.background = 'rgba(244,63,94,0.18)';
+            el.style.color = '#fda4af';
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget;
+            el.style.background = 'transparent';
+            el.style.color = 'rgba(255,255,255,0.35)';
+          }}
         >
-          <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
         </button>
       </div>
