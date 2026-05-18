@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -24,7 +25,6 @@ interface MenuSection {
 
 export default function Sidebar({ isOpen, userRole }: SidebarProps) {
   const pathname = usePathname() ?? '';
-  const router = useRouter();
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     schedule: true,
@@ -36,16 +36,6 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
     e.preventDefault();
     e.stopPropagation();
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  /**
-   * Naviga verso href e forza il refresh del router per garantire
-   * l'idratazione completa del nuovo segmento di pagina.
-   */
-  const navigate = (e: React.MouseEvent, href: string) => {
-    e.preventDefault();
-    router.push(href);
-    router.refresh();
   };
 
   const adminMenuItems: MenuItem[] = [
@@ -135,15 +125,14 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
             return (
               <div key={section.key}>
                 <div className="flex items-center w-full rounded-lg hover:bg-gray-100 transition-colors">
-                  <a
+                  <Link
                     href={section.href}
-                    onClick={(e) => navigate(e, section.href)}
-                    className={`flex-1 px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-l-lg cursor-pointer ${
+                    className={`flex-1 px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-l-lg ${
                       isActive(section.href) ? 'text-blue-700' : 'text-gray-500'
                     }`}
                   >
                     {section.label}
-                  </a>
+                  </Link>
                   <button
                     type="button"
                     onClick={(e) => toggleSection(e, section.key)}
@@ -164,11 +153,10 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                     {section.items.map((item) => {
                       const active = isActive(item.href);
                       return (
-                        <a
+                        <Link
                           key={item.href}
                           href={item.href}
-                          onClick={(e) => navigate(e, item.href)}
-                          className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer ${
+                          className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
                             active
                               ? 'bg-blue-50 text-blue-700 font-medium'
                               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -176,7 +164,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
                         >
                           <span className="text-base leading-none">{item.icon}</span>
                           <span>{item.label}</span>
-                        </a>
+                        </Link>
                       );
                     })}
                   </div>
@@ -190,19 +178,18 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
             {allItems.map((item) => {
               const active = isActive(item.href);
               return (
-                <a
+                <Link
                   key={item.href}
                   href={item.href}
                   title={item.label}
-                  onClick={(e) => navigate(e, item.href)}
-                  className={`flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-colors text-lg cursor-pointer ${
+                  className={`flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-colors text-lg ${
                     active
                       ? 'bg-blue-50 text-blue-700'
                       : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
                   }`}
                 >
                   {item.icon}
-                </a>
+                </Link>
               );
             })}
           </div>

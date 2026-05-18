@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import Calendar from '@/components/Calendar';
 import { api } from '@/lib/fetcher';
@@ -9,16 +9,14 @@ import { useAuth } from '@/lib/useAuth';
 
 export default function CalendarPage() {
   const { userId, userName, userRole, logout } = useAuth();
-  const [mounted, setMounted] = useState(false);
-  const [year, setYear] = useState(0);
-  const [month, setMonth] = useState(0);
 
-  useEffect(() => {
-    const today = new Date();
-    setYear(today.getFullYear());
-    setMonth(today.getMonth());
-    setMounted(true);
-  }, []);
+  // Lazy initializer: eseguito una sola volta sul client, evita il pattern
+  // "mounted + year=0" che causava un mismatch tra lo stato SSR (0) e il
+  // successivo aggiornamento client, rendendo il calendario congelato dopo
+  // la navigazione con router.refresh().
+  const [year, setYear] = useState<number>(() => new Date().getFullYear());
+  const [month, setMonth] = useState<number>(() => new Date().getMonth()); // 0-based
+
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -27,13 +25,9 @@ export default function CalendarPage() {
   const [workDays, setWorkDays] = useState<string[]>(['monday', 'tuesday', 'wednesday', 'thursday', 'friday']);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (mounted) {
-      loadData();
-    }
-  }, [year, month, mounted]);
-
-  const loadData = async () => {
+  // useCallback garantisce che loadData venga ricreata solo quando year/month
+  // cambiano, evitando loop infiniti nell'useEffect che la dipende.
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const m = month + 1;
@@ -56,28 +50,22 @@ export default function CalendarPage() {
       if (settingsData.work_days) {
         setWorkDays(settingsData.work_days.split(',').map((d: string) => d.trim()).filter(Boolean));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error loading calendar:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [year, month]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleMonthChange = (delta: number) => {
     const newDate = new Date(year, month + delta);
     setYear(newDate.getFullYear());
     setMonth(newDate.getMonth());
   };
-
-  if (!mounted) {
-    return (
-      <Layout userRole={userRole} userName={userName} onLogout={logout}>
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </Layout>
-    );
-  }
 
   return (
     <Layout userRole={userRole} userName={userName} onLogout={logout}>
