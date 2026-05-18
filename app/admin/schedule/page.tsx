@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import Calendar from '@/components/Calendar';
 import DraggableUserList from '@/components/DraggableUserList';
@@ -12,16 +12,8 @@ import { useAuth } from '@/lib/useAuth';
 
 export default function SchedulePage() {
   const { userId } = useAuth();
-  const [mounted, setMounted] = useState(false);
-  const [year, setYear] = useState(0);
-  const [month, setMonth] = useState(0); // 0-based
-
-  useEffect(() => {
-    const today = new Date();
-    setYear(today.getFullYear());
-    setMonth(today.getMonth());
-    setMounted(true);
-  }, []);
+  const [year, setYear] = useState<number>(() => new Date().getFullYear());
+  const [month, setMonth] = useState<number>(() => new Date().getMonth()); // 0-based
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [shifts, setShifts] = useState<ShiftWithUser[]>([]);
@@ -36,13 +28,7 @@ export default function SchedulePage() {
   const [preferences, setPreferences] = useState<ShiftPreference[]>([]);
   const [showPreferences, setShowPreferences] = useState(true);
 
-  useEffect(() => {
-    if (mounted) {
-      loadData();
-    }
-  }, [year, month, mounted]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const m = month + 1; // API expects 1-based month
@@ -62,21 +48,23 @@ export default function SchedulePage() {
       setMaxCapacity(
         settingsData.max_office_capacity ? parseInt(settingsData.max_office_capacity) : 30,
       );
-      // Parse holidays from settings
       const newHolidays = Object.keys(settingsData)
         .filter((k) => k.startsWith('holiday:'))
         .map((k) => k.replace('holiday:', ''));
       setHolidays(newHolidays);
-      // Parse work days from settings
       if (settingsData.work_days) {
         setWorkDays(settingsData.work_days.split(',').map((d: string) => d.trim()).filter(Boolean));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [year, month]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleShiftChange = async (userId: string, shiftDate: string, newType: 'office' | 'smartwork') => {
     await api.post('/api/shifts', { userId, shiftDate, shiftType: newType });
@@ -156,16 +144,6 @@ export default function SchedulePage() {
     setYear(newDate.getFullYear());
     setMonth(newDate.getMonth()); // keep 0-based
   };
-
-  if (!mounted) {
-    return (
-      <Layout userRole="admin" userName="Admin">
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </Layout>
-    );
-  }
 
   return (
     <Layout userRole="admin" userName="Admin">

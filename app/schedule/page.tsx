@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
@@ -26,21 +26,14 @@ function formatDate(date: Date): string {
 }
 
 export default function SchedulePage() {
-  const [mounted, setMounted] = useState(false);
-  const [today, setToday] = useState<Date | null>(null);
-  const [year, setYear] = useState(0);
-  const [month, setMonth] = useState(0);
+  // Lazy initializers: eseguiti solo sul client, nessun mismatch SSR
+  const today = new Date();
+  const todayStr = formatDate(today);
+  const [year, setYear] = useState<number>(() => new Date().getFullYear());
+  const [month, setMonth] = useState<number>(() => new Date().getMonth());
 
-  useEffect(() => {
-    const t = new Date();
-    setToday(t);
-    setYear(t.getFullYear());
-    setMonth(t.getMonth());
-    setMounted(true);
-  }, []);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
   const [userName, setUserName] = useState('Utente');
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,11 +46,10 @@ export default function SchedulePage() {
       } else {
         setLoading(false);
       }
-      setAuthChecked(true);
     });
   }, []);
 
-  // Also try to get the display name
+  // Display name
   useEffect(() => {
     if (!userId) return;
     api.get<{ full_name: string }>(`/api/users?id=${userId}`)
@@ -65,12 +57,7 @@ export default function SchedulePage() {
       .catch(() => {});
   }, [userId]);
 
-  useEffect(() => {
-    if (!mounted || !authChecked || !userId) return;
-    loadShifts();
-  }, [authChecked, userId, year, month, mounted]);
-
-  const loadShifts = async () => {
+  const loadShifts = useCallback(async () => {
     if (!userId) return;
     try {
       setLoading(true);
@@ -78,12 +65,16 @@ export default function SchedulePage() {
       const end = formatDate(new Date(year, month + 1, 0));
       const data = await api.get<Shift[]>(`/api/shifts?userId=${userId}&start=${start}&end=${end}`);
       setShifts(data);
-    } catch (e: any) {
-      setError(e.message ?? 'Errore nel caricamento dello schedule');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Errore nel caricamento dello schedule');
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId, year, month]);
+
+  useEffect(() => {
+    loadShifts();
+  }, [loadShifts]);
 
   const handleMonthChange = (delta: number) => {
     const d = new Date(year, month + delta);
@@ -103,15 +94,6 @@ export default function SchedulePage() {
     return acc;
   }, {});
 
-  if (!mounted || !today) {
-    return (
-      <Layout userRole="user" userName={userName}>
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </Layout>
-    );
-  }
 
   return (
     <Layout userRole="user" userName={userName}>
@@ -128,7 +110,7 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {authChecked && !userId && (
+        {!loading && !userId && (
           <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-yellow-800">
             <p className="font-medium">Sessione non trovata</p>
             <p className="text-sm mt-1">Effettua il login per visualizzare il tuo schedule.</p>
@@ -199,7 +181,7 @@ export default function SchedulePage() {
               {days.map((date) => {
                 const dateStr = formatDate(date);
                 const shift = shiftByDate.get(dateStr);
-                const isToday = dateStr === formatDate(today);
+                const isToday = dateStr === todayStr;
                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                 const dayCol = (date.getDay() + firstDayOfWeek) % 7;
 

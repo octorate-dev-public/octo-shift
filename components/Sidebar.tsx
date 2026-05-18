@@ -33,7 +33,10 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
   });
 
   const toggleSection = (e: React.MouseEvent, section: string) => {
-    e.preventDefault();
+    // Solo stopPropagation per evitare bubbling al div padre.
+    // NON chiamare preventDefault(): su type="button" è no-op per il browser
+    // ma imposta defaultPrevented=true sul SyntheticEvent React, che Chrome
+    // interpreta come "click intercettato" e potrebbe confondere l'event tracing.
     e.stopPropagation();
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
