@@ -13,8 +13,17 @@ export const GET = withHandler('api/on-call', 'GET', async (req) => {
   const p = req.nextUrl.searchParams;
 
   // Daily: anno completo (matrice)
-  if (p.has('dailyYear')) {
+  if (p.has('dailyYear') && !p.has('dailyMonth')) {
     const data = await onCallAPI.getYearDailyOnCall(parseInt(p.get('dailyYear')!));
+    return jsonOk(data);
+  }
+
+  // Daily: mese specifico con join users (pagina /on-call utente)
+  if (p.has('dailyYear') && p.has('dailyMonth')) {
+    const data = await onCallAPI.getMonthDailyOnCall(
+      parseInt(p.get('dailyYear')!),
+      parseInt(p.get('dailyMonth')!),
+    );
     return jsonOk(data);
   }
 

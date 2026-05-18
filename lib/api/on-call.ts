@@ -151,6 +151,25 @@ export const onCallAPI = {
   // DAILY ASSIGNMENTS (matrice annuale)
   // ─────────────────────────────────────────────
 
+  /** Recupera le assegnazioni giornaliere di un mese specifico (join con users). */
+  async getMonthDailyOnCall(year: number, month: number): Promise<(OnCallDailyAssignment & { user?: any })[]> {
+    return log.withTiming('getMonthDailyOnCall', { year, month }, async () => {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('on_call_daily_assignments')
+        .select('*, users:user_id(id, full_name, email)')
+        .gte('assignment_date', startDate)
+        .lte('assignment_date', endDate)
+        .order('assignment_date', { ascending: true });
+
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità del mese');
+      return (data || []).map((item: any) => ({ ...item, user: item.users }));
+    });
+  },
+
   /** Recupera tutte le assegnazioni giornaliere di un anno. */
   async getYearDailyOnCall(year: number): Promise<OnCallDailyAssignment[]> {
     return log.withTiming('getYearDailyOnCall', { year }, async () => {
