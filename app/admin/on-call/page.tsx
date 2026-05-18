@@ -40,7 +40,7 @@ interface DayRow {
 }
 
 interface SwapState {
-  mode: 'idle' | 'selecting-target';
+  mode: 'idle' | 'selecting-day' | 'selecting-week';
   sourceDate: string | null;
   sourceUserId: string | null;
 }
@@ -270,12 +270,22 @@ export default function AdminOnCallMatricePage() {
     }
   };
 
-  // Click su cella: riassegna o completa swap
+  // Click su cella: completa swap (giorno o settimana) oppure apre modal riassegnazione
   const handleCellClick = (date: string, targetUserId: string) => {
     const currentUserId = assignmentMap.get(date) ?? null;
 
-    // Completa swap settimane
-    if (swap.mode === 'selecting-target' && swap.sourceDate && swap.sourceUserId) {
+    if (swap.mode === 'selecting-day' && swap.sourceDate && swap.sourceUserId) {
+      // Deseleziona se stesso
+      if (swap.sourceDate === date && swap.sourceUserId === targetUserId) {
+        setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
+        return;
+      }
+      doSwapDays(swap.sourceDate, swap.sourceUserId, date, targetUserId);
+      setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
+      return;
+    }
+
+    if (swap.mode === 'selecting-week' && swap.sourceDate && swap.sourceUserId) {
       if (targetUserId === swap.sourceUserId) {
         setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
         return;
@@ -305,6 +315,32 @@ export default function AdminOnCallMatricePage() {
     } finally {
       setSaving(false);
       setModal(null);
+    }
+  };
+
+  // Swap di un singolo giorno tra due utenti
+  const doSwapDays = async (date1: string, userId1: string, date2: string, userId2: string) => {
+    if (userId1 === userId2 && date1 === date2) return;
+    try {
+      setSaving(true);
+      await api.patch('/api/on-call', {
+        swap: true,
+        userId1, dates1: [date1],
+        userId2, dates2: [date2],
+      });
+      setAssignments((prev) => {
+        const map = new Map(prev.map((a) => [a.assignment_date, { ...a }]));
+        const e1 = map.get(date1);
+        const e2 = map.get(date2);
+        if (e1) e1.user_id = userId2;
+        if (e2) e2.user_id = userId1;
+        return Array.from(map.values());
+      });
+      showSuccess(`${parseDateString(date1).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} ↔ ${parseDateString(date2).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}: scambio effettuato.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Errore nello scambio');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -345,6 +381,7 @@ export default function AdminOnCallMatricePage() {
   };
 
   const cancelSwap = () => setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
+  const isSwapActive = swap.mode !== 'idle';
 
   const toggleMonth = (m: number) =>
     setExpandedMonths((prev) => {
@@ -373,7 +410,7 @@ export default function AdminOnCallMatricePage() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Reperibilità Annuale</h1>
             <p className="text-gray-500 mt-1 text-sm">
-              Matrice giorni / dipendenti — clic su pallino assegnato per avviare swap settimana, clic su &quot;+&quot; per riassegnare
+              Clic sul <strong>pallino</strong> per scambiare quel giorno · <strong>↕</strong> per scambiare la settimana · <strong>+</strong> per riassegnare
             </p>
           </div>
 
@@ -424,15 +461,26 @@ export default function AdminOnCallMatricePage() {
         )}
 
         {/* Banner swap attivo */}
-        {swap.mode === 'selecting-target' && (
-          <div className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-lg flex items-center gap-3">
-            <span className="text-xl">↕</span>
+        {isSwapActive && (
+          <div className={`px-4 py-3 rounded-lg flex items-center gap-3 border ${
+            swap.mode === 'selecting-day'
+              ? 'bg-sky-50 border-sky-300 text-sky-800'
+              : 'bg-amber-50 border-amber-300 text-amber-800'
+          }`}>
+            <span className="text-xl">{swap.mode === 'selecting-day' ? '📅' : '↕'}</span>
             <span className="font-medium flex-1">
-              Modalità swap attiva — clicca sul pallino assegnato di un altro dipendente per scambiare la rispettiva settimana.
+              {swap.mode === 'selecting-day'
+                ? `Scambio GIORNO — selezionato: ${parseDateString(swap.sourceDate!).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}. Ora clicca il pallino del giorno con cui scambiare.`
+                : `Scambio SETTIMANA — clicca il pallino di un altro dipendente per scambiare l'intera settimana.`
+              }
             </span>
             <button
               onClick={cancelSwap}
-              className="text-sm bg-amber-200 hover:bg-amber-300 text-amber-900 px-3 py-1.5 rounded-lg font-medium transition"
+              className={`text-sm px-3 py-1.5 rounded-lg font-medium transition ${
+                swap.mode === 'selecting-day'
+                  ? 'bg-sky-200 hover:bg-sky-300 text-sky-900'
+                  : 'bg-amber-200 hover:bg-amber-300 text-amber-900'
+              }`}
             >
               Annulla
             </button>
@@ -626,26 +674,31 @@ export default function AdminOnCallMatricePage() {
                               {visibleUsers.map((u) => {
                                 const isAssigned = row.userId === u.id;
                                 const c = userColorMap.get(u.id);
+                                // Il pallino lampeggia come destinazione valida in entrambe le modalità swap
                                 const isSwapTargetCandidate =
-                                  swap.mode === 'selecting-target' && isAssigned && row.date !== swap.sourceDate;
+                                  isSwapActive && isAssigned &&
+                                  !(swap.sourceDate === row.date && swap.sourceUserId === u.id);
 
                                 if (isAssigned) {
+                                  const isDaySource = swap.mode === 'selecting-day' && isSwapSource;
+                                  const isWeekSource = swap.mode === 'selecting-week' && isSwapSource;
                                   return (
                                     <td key={u.id} className="px-2 py-1 text-center">
                                       <button
                                         title={
                                           swap.mode === 'idle'
-                                            ? `${u.full_name} — clicca per avviare scambio settimana`
-                                            : `Scambia settimana con ${u.full_name}`
+                                            ? `${u.full_name} — clicca per scambiare questo giorno`
+                                            : isSwapTargetCandidate
+                                            ? `Scambia con ${u.full_name}`
+                                            : undefined
                                         }
                                         onClick={() => {
                                           if (swap.mode === 'idle') {
-                                            setSwap({ mode: 'selecting-target', sourceDate: row.date, sourceUserId: u.id });
-                                          } else if (swap.mode === 'selecting-target' && swap.sourceDate && swap.sourceUserId) {
-                                            if (u.id !== swap.sourceUserId) {
-                                              doSwapWeeks(swap.sourceDate, swap.sourceUserId, row.date, u.id);
-                                            }
-                                            setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
+                                            // Clic sul pallino → swap giorno singolo
+                                            setSwap({ mode: 'selecting-day', sourceDate: row.date, sourceUserId: u.id });
+                                          } else {
+                                            // In qualsiasi modalità swap, completa cliccando un altro pallino
+                                            handleCellClick(row.date, u.id);
                                           }
                                         }}
                                         className={[
@@ -653,8 +706,9 @@ export default function AdminOnCallMatricePage() {
                                           c?.bg ?? 'bg-gray-400',
                                           'hover:scale-110 hover:shadow-md',
                                           row.hasVacation ? 'ring-2 ring-red-500 ring-offset-1' : '',
-                                          isSwapSource ? 'ring-2 ring-amber-500 ring-offset-2 scale-110 shadow-md' : '',
-                                          isSwapTargetCandidate ? 'ring-2 ring-amber-400 ring-offset-1 animate-pulse' : '',
+                                          isDaySource ? 'ring-2 ring-sky-500 ring-offset-2 scale-110 shadow-md' : '',
+                                          isWeekSource ? 'ring-2 ring-amber-500 ring-offset-2 scale-110 shadow-md' : '',
+                                          isSwapTargetCandidate ? 'ring-2 ring-indigo-400 ring-offset-1 animate-pulse' : '',
                                         ].filter(Boolean).join(' ')}
                                       >
                                         {row.hasVacation ? '⚠' : getInitials(u.full_name)}
@@ -663,20 +717,17 @@ export default function AdminOnCallMatricePage() {
                                   );
                                 }
 
+                                // Cella vuota: solo riassegnazione, disabilitata in swap mode
                                 return (
                                   <td key={u.id} className="px-2 py-1 text-center">
                                     <button
-                                      title={
-                                        swap.mode === 'selecting-target'
-                                          ? undefined
-                                          : `Assegna ${row.dayLabel} a ${u.full_name}`
-                                      }
-                                      disabled={swap.mode === 'selecting-target'}
+                                      title={isSwapActive ? undefined : `Assegna ${row.dayLabel} a ${u.full_name}`}
+                                      disabled={isSwapActive}
                                       onClick={() => handleCellClick(row.date, u.id)}
                                       className={[
                                         'w-8 h-8 rounded-full mx-auto flex items-center justify-center transition-all',
-                                        swap.mode === 'selecting-target'
-                                          ? 'opacity-20 cursor-not-allowed'
+                                        isSwapActive
+                                          ? 'opacity-15 cursor-not-allowed'
                                           : 'border-2 border-dashed border-gray-200 text-gray-300 hover:border-gray-400 hover:text-gray-500 hover:bg-gray-50 cursor-pointer',
                                       ].join(' ')}
                                     >
@@ -686,21 +737,34 @@ export default function AdminOnCallMatricePage() {
                                 );
                               })}
 
-                              {/* Colonna ↕ scambio rapido */}
+                              {/* Colonna ↕ — avvia swap SETTIMANA */}
                               <td className="px-2 py-1 text-center">
                                 {row.userId && (
                                   <button
-                                    title={isSwapSource ? 'Annulla scambio' : 'Avvia scambio settimana'}
+                                    title={
+                                      isSwapSource && swap.mode === 'selecting-week'
+                                        ? 'Annulla scambio settimana'
+                                        : swap.mode === 'idle'
+                                        ? 'Scambia settimana intera'
+                                        : undefined
+                                    }
+                                    disabled={isSwapActive && swap.mode !== 'selecting-week'}
                                     onClick={() => {
-                                      if (isSwapSource) cancelSwap();
-                                      else if (swap.mode === 'idle') {
-                                        setSwap({ mode: 'selecting-target', sourceDate: row.date, sourceUserId: row.userId! });
+                                      if (isSwapSource && swap.mode === 'selecting-week') {
+                                        cancelSwap();
+                                      } else if (swap.mode === 'idle') {
+                                        setSwap({ mode: 'selecting-week', sourceDate: row.date, sourceUserId: row.userId! });
+                                      } else if (swap.mode === 'selecting-week' && swap.sourceDate && swap.sourceUserId && row.userId) {
+                                        doSwapWeeks(swap.sourceDate, swap.sourceUserId, row.date, row.userId);
+                                        setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
                                       }
                                     }}
                                     className={[
                                       'text-xs px-1.5 py-1 rounded transition-colors font-mono',
-                                      isSwapSource
+                                      isSwapSource && swap.mode === 'selecting-week'
                                         ? 'bg-amber-200 text-amber-800 font-bold'
+                                        : isSwapActive && swap.mode !== 'selecting-week'
+                                        ? 'opacity-15 cursor-not-allowed text-gray-300'
                                         : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100',
                                     ].join(' ')}
                                   >
@@ -720,11 +784,11 @@ export default function AdminOnCallMatricePage() {
 
             {/* Nota legenda simboli */}
             <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 flex flex-wrap gap-4">
-              <span><strong className="text-gray-700">Pallino pieno</strong> = reperibile assegnato</span>
-              <span><strong className="text-red-600">⚠ bordo rosso</strong> = dipendente in ferie quel giorno</span>
-              <span><strong className="text-gray-700">+ tratteggiato</strong> = clic per assegnare</span>
-              <span><strong className="text-amber-700">↕</strong> = avvia scambio settimana</span>
-              <span><strong className="text-gray-700">W</strong> = numero settimana ISO</span>
+              <span><strong className="text-sky-600">Clic su pallino</strong> = scambia quel singolo giorno</span>
+              <span><strong className="text-amber-600">↕</strong> = scambia l&apos;intera settimana</span>
+              <span><strong className="text-gray-700">+ tratteggiato</strong> = riassegna giorno</span>
+              <span><strong className="text-red-500">⚠ bordo rosso</strong> = ferie quel giorno</span>
+              <span><strong className="text-gray-500">W</strong> = settimana ISO</span>
             </div>
           </div>
         )}
