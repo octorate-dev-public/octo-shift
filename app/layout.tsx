@@ -4,6 +4,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'SmartWork Scheduler',
   description: 'Employee smartwork scheduling management system',
+  icons: {
+    icon: '/project_icon.png',
+    apple: '/project_icon.png',
+  },
 };
 
 export default function RootLayout({
