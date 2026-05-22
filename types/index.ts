@@ -180,8 +180,9 @@ export interface AiSuggestion {
 export interface AiLeaveSuggestion {
   id: string;
   severity: 'high' | 'medium' | 'low' | 'info';
-  category: 'overflow' | 'equity' | 'coverage' | 'pattern' | 'anomaly' | 'info';
+  category: 'overflow' | 'equity' | 'coverage' | 'pattern' | 'anomaly' | 'burnout' | 'info';
   title: string;
   description: string;
   affectedUsers: string[];
+  suggestedPeriods?: string[]; // finestre consigliate (es. "1–15 agosto", "23 dic – 6 gen")
 }

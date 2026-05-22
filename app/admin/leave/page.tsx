@@ -910,6 +910,7 @@ export default function AdminLeavePage() {
                       coverage: '🛡️',
                       pattern:  '🔍',
                       anomaly:  '⚠️',
+                      burnout:  '🔥',
                       info:     'ℹ️',
                     };
                     const severityLabel: Record<string, string> = {
@@ -938,6 +939,18 @@ export default function AdminLeavePage() {
                                 👤 {name}
                               </span>
                             ))}
+                          </div>
+                        )}
+                        {s.suggestedPeriods && s.suggestedPeriods.length > 0 && (
+                          <div className="pt-1">
+                            <p className="text-xs font-semibold text-emerald-700 mb-1">Periodi consigliati:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {s.suggestedPeriods.map((period) => (
+                                <span key={period} className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5 font-medium">
+                                  🗓️ {period}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

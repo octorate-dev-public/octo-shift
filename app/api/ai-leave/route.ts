@@ -76,13 +76,59 @@ COSA DEVI ANALIZZARE (in ordine di priorità):
    - Confronta dipendenti con stessa skill/team.
 
 4. PATTERN ANOMALI (severity: medium/low)
-   - Dipendenti che non hanno preso ferie da mesi (rischio burnout).
    - Ferie sempre concentrate in uno stesso periodo (es. solo agosto).
    - Blocchi di ferie molto lunghi (>15 giorni consecutivi).
 
+4b. BURNOUT / TUTELA DEL DIPENDENTE (severity: high/medium) — POLICY OBBLIGATORIA
+   Analizza i PERIODI CRITICI di recupero sotto. Per ciascuno, verifica chi
+   NON ha preso nemmeno un giorno di ferie in quel periodo.
+
+   NOTA SUI PERMESSI — AMMORTIZZATORE BURNOUT:
+   I permessi brevi (dalla sezione "PERMESSI BREVI PER DIPENDENTE") attenuano
+   il rischio burnout perché rappresentano micro-pause fuori ufficio.
+   Regola di conversione: ogni 4 permessi ≈ 1 giorno di ferie equivalente.
+   Applica questo aggiustamento PRIMA di classificare la severity:
+   - Chi ha 0 ferie ma ≥8 permessi nell'anno → considera come se avesse
+     ~2 giorni ferie equivalenti (abbassa la severity da high a medium).
+   - Chi ha 0 ferie ma ≥16 permessi → ~4 giorni equiv. → severity medium/low,
+     ma segnala comunque che non ha blocchi di recupero continuativi.
+   - Chi ha pochi giorni in un periodo critico (es. 1–2 ferie in estate) ma
+     ha preso ≥4 permessi nello stesso mese → considera il periodo parzialmente
+     coperto (non emettere avviso per quel periodo specifico).
+   In tutti i casi, nella description specifica sempre sia le ferie effettive
+   che i permessi: es. "Mario: 2 ferie + 10 permessi (≈4.5gg equiv.)".
+
+   PERIODI CRITICI (${year}):
+   • Estate: 1 luglio – 31 agosto
+   • Natale/Capodanno: 23 dicembre – 6 gennaio ${year + 1}
+   • Pasqua: ±3 giorni lavorativi intorno al lunedì di Pasqua
+   • Ponti principali: 25 aprile, 1° maggio, 2 giugno (±1 giorno lavorativo)
+
+   POLICY DI TUTELA (dopo aggiustamento permessi):
+   a) Chi ha 0 ferie + 0 permessi nell'intero anno (severity: high) → avviso
+      esplicito + suggerisci i periodi migliori in base alla copertura del team.
+   b) Chi ha saltato TUTTI i periodi critici (né estate né natale) e ha meno
+      della metà della media ferie+equiv. dei colleghi → severity high.
+   c) Chi ha saltato 1 solo periodo critico ma ha comunque poche assenze totali
+      (<30% della dotazione, permessi inclusi) → severity medium.
+   d) Chi non prende né ferie né permessi da più di 90 giorni consecutivi
+      (data odierna ${new Date().toISOString().split('T')[0]}) → severity medium.
+
+   SUGGERIMENTO PERIODI:
+   Quando un dipendente non ha ferie o ha saltato periodi critici, popola il
+   campo "suggestedPeriods" con 2–4 finestre specifiche in cui:
+   - Il team ha MENO sovrapposizioni (bassa presenza nella sezione 3+ assenti).
+   - Il dipendente non ha già ferie pianificate.
+   - Preferisci finestre che includono festività (recupero più efficiente).
+   Esempio: ["1–15 agosto (team scarico)", "23 dic – 3 gen (periodo festivo)"].
+   Se non c'è alcuna finestra libera, dì esplicitamente perché.
+
 5. PERMESSI (severity: low/info)
-   - Abuso di permessi brevi frequenti?
-   - Permessi concentrati in certi giorni della settimana?
+   - Abuso di permessi brevi frequenti? (es. >8 permessi nell'anno)
+   - Permessi concentrati in certi giorni della settimana? Usa la sezione
+     "PERMESSI BREVI PER DIPENDENTE" che include data e giorno (Lun/Ven/ecc.):
+     pattern come "sempre Lun o Ven" suggeriscono long weekend sistematici.
+   - Permessi back-to-back (più permessi in settimane consecutive).
 
 6. PREVISIONI (severity: low/info)
    - Se continua il ritmo attuale, chi finirà le ferie prima di fine anno?
@@ -98,15 +144,27 @@ Rispondi ESCLUSIVAMENTE con JSON valido, senza markdown:
       "category": "overflow",
       "title": "Titolo breve e specifico",
       "description": "Descrizione dettagliata con nomi, numeri e suggerimento pratico per l'HR.",
-      "affectedUsers": ["Nome Cognome 1", "Nome Cognome 2"]
+      "affectedUsers": ["Nome Cognome 1", "Nome Cognome 2"],
+      "suggestedPeriods": []
+    },
+    {
+      "id": "2",
+      "severity": "high",
+      "category": "burnout",
+      "title": "Nessuna ferie presa nell'anno",
+      "description": "Mario Rossi non ha ancora preso nessun giorno di ferie nel ${year}. Rischio burnout elevato. Il team è meno affollato in agosto e tra Natale e Capodanno.",
+      "affectedUsers": ["Mario Rossi"],
+      "suggestedPeriods": ["1–15 agosto (team scarico)", "27 dic – 3 gen (periodo festivo)"]
     }
   ]
 }
 
+CATEGORIE VALIDE: overflow, equity, coverage, pattern, anomaly, burnout, info
 VINCOLI:
-- Produci da 4 a 10 suggerimenti, ordinati per severity decrescente.
+- Produci da 4 a 12 suggerimenti, ordinati per severity decrescente.
 - Sii specifico: cita nomi, numeri di giorni, date, periodi.
 - Se i dati non mostrano anomalie reali per una categoria, omettila (non inventare problemi).
+- Ogni suggerimento burnout DEVE includere suggestedPeriods (array non vuoto) se esistono finestre libere.
 - Il tono è professionale e costruttivo, non giudicante.`;
 }
 
