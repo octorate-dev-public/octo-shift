@@ -30,8 +30,8 @@ interface AiOnCallRequest {
 
 // ─── Tipi della risposta ─────────────────────────────────────────────────────
 
-export type { AiSuggestion, AiSuggestionAction } from '@/lib/types/ai-oncall';
-import type { AiSuggestion } from '@/lib/types/ai-oncall';
+import type { AiSuggestion, AiSuggestionAction } from '@/types';
+export type { AiSuggestion, AiSuggestionAction } from '@/types';
 
 // ─── Costruzione prompt ───────────────────────────────────────────────────────
 

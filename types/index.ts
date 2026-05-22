@@ -154,3 +154,34 @@ export interface ShiftStats {
   vacationToday: number;
   permissionToday: number;
 }
+
+// ─── AI On-Call ───────────────────────────────────────────────────────────────
+
+export interface AiSuggestionAction {
+  userId1: string;
+  userName1: string;
+  dates1: string[];
+  userId2: string;
+  userName2: string;
+  dates2: string[];
+}
+
+export interface AiSuggestion {
+  id: string;
+  type: 'swap' | 'info';
+  severity: 'high' | 'medium' | 'low' | 'info';
+  title: string;
+  description: string;
+  action?: AiSuggestionAction;
+}
+
+// ─── AI Ferie ────────────────────────────────────────────────────────────────
+
+export interface AiLeaveSuggestion {
+  id: string;
+  severity: 'high' | 'medium' | 'low' | 'info';
+  category: 'overflow' | 'equity' | 'coverage' | 'pattern' | 'anomaly' | 'info';
+  title: string;
+  description: string;
+  affectedUsers: string[];
+}
