@@ -424,7 +424,6 @@ export default function AdminOnCallMatricePage() {
       .filter((r) => r.userId !== null)
       .map((r) => {
         const u = users.find((u2) => u2.id === r.userId);
-        const d = r.dateObj;
         return {
           date: r.date,
           dayLabel: `${r.dayLabel} ${MESI_SHORT[r.monthIdx]}`,
@@ -435,8 +434,20 @@ export default function AdminOnCallMatricePage() {
         };
       });
 
-    return { year, today: todayStr2, users: userStats, days, userPrompt: aiPrompt };
-  }, [year, today, users, assignments, dayRows, aiPrompt]);
+    // Ferie di TUTTI gli utenti disponibili (non solo dell'assegnato).
+    // Serve a Claude per cross-check: "se sposto queste date su userId2, lui è in ferie?"
+    const userVacations = users
+      .filter((u) => u.on_call_available)
+      .map((u) => ({
+        userId: u.id,
+        userName: u.full_name,
+        // Solo date future per contenere il payload
+        vacationDates: [...(vacationDates.get(u.id) ?? [])].filter((d) => d >= todayStr2).sort(),
+      }))
+      .filter((uv) => uv.vacationDates.length > 0);
+
+    return { year, today: todayStr2, users: userStats, days, userVacations, userPrompt: aiPrompt };
+  }, [year, today, users, assignments, dayRows, vacationDates, aiPrompt]);
 
   const handleAiAnalyze = async () => {
     if (assignments.length === 0) {
@@ -464,6 +475,33 @@ export default function AdminOnCallMatricePage() {
   const handleApplySuggestion = async (suggestion: AiSuggestion) => {
     if (!suggestion.action || applyingId) return;
     const a = suggestion.action as AiSuggestionAction;
+
+    // ── Cross-check ferie lato client (safety net oltre al check AI) ──────────
+    // userId2 riceve dates1: verifica che non sia in ferie in quelle date
+    const vacU2 = vacationDates.get(a.userId2) ?? new Set<string>();
+    const conflictU2 = a.dates1.filter((d) => vacU2.has(d));
+    // userId1 riceve dates2: verifica che non sia in ferie in quelle date
+    const vacU1 = vacationDates.get(a.userId1) ?? new Set<string>();
+    const conflictU1 = a.dates2.filter((d) => vacU1.has(d));
+
+    if (conflictU2.length > 0 || conflictU1.length > 0) {
+      const parts: string[] = [];
+      if (conflictU2.length > 0) {
+        parts.push(
+          `${a.userName2} è in ferie nelle date che riceverebbe: ${conflictU2.slice(0, 5).join(', ')}${conflictU2.length > 5 ? ` +${conflictU2.length - 5}` : ''}.`,
+        );
+      }
+      if (conflictU1.length > 0) {
+        parts.push(
+          `${a.userName1} è in ferie nelle date che riceverebbe: ${conflictU1.slice(0, 5).join(', ')}${conflictU1.length > 5 ? ` +${conflictU1.length - 5}` : ''}.`,
+        );
+      }
+      const proceed = confirm(
+        `⚠️ Conflitto ferie rilevato:\n\n${parts.join('\n')}\n\nApplicando lo scambio si creerebbe un nuovo conflitto ferie. Vuoi procedere comunque?`,
+      );
+      if (!proceed) return;
+    }
+
     try {
       setApplyingId(suggestion.id);
       await api.patch('/api/on-call', {
@@ -833,20 +871,29 @@ export default function AdminOnCallMatricePage() {
                                 }
 
                                 // Cella vuota: solo riassegnazione, disabilitata in swap mode
+                                const wouldConflict = vacationDates.get(u.id)?.has(row.date) ?? false;
                                 return (
                                   <td key={u.id} className="px-2 py-1 text-center">
                                     <button
-                                      title={isSwapActive ? undefined : `Assegna ${row.dayLabel} a ${u.full_name}`}
+                                      title={
+                                        isSwapActive
+                                          ? undefined
+                                          : wouldConflict
+                                          ? `${u.full_name} è in ferie il ${row.dayLabel} — assegnazione sconsigliata`
+                                          : `Assegna ${row.dayLabel} a ${u.full_name}`
+                                      }
                                       disabled={isSwapActive}
                                       onClick={() => handleCellClick(row.date, u.id)}
                                       className={[
                                         'w-8 h-8 rounded-full mx-auto flex items-center justify-center transition-all',
                                         isSwapActive
                                           ? 'opacity-15 cursor-not-allowed'
+                                          : wouldConflict
+                                          ? 'border-2 border-dashed border-red-300 text-red-300 hover:border-red-500 hover:text-red-500 hover:bg-red-50 cursor-pointer'
                                           : 'border-2 border-dashed border-gray-200 text-gray-300 hover:border-gray-400 hover:text-gray-500 hover:bg-gray-50 cursor-pointer',
                                       ].join(' ')}
                                     >
-                                      <span className="text-xs leading-none">+</span>
+                                      <span className="text-xs leading-none">{wouldConflict && !isSwapActive ? '⚠' : '+'}</span>
                                     </button>
                                   </td>
                                 );

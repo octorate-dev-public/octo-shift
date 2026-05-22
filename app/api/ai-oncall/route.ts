@@ -20,11 +20,18 @@ interface AiOnCallDay {
   isPast: boolean;      // giorno già passato
 }
 
+interface AiOnCallUserVacation {
+  userId: string;
+  userName: string;
+  vacationDates: string[]; // date future in cui l'utente è in ferie (YYYY-MM-DD)
+}
+
 interface AiOnCallRequest {
   year: number;
   today: string;          // YYYY-MM-DD
   users: AiOnCallUser[];
   days: AiOnCallDay[];
+  userVacations?: AiOnCallUserVacation[]; // ferie future di tutti gli utenti on-call disponibili
   userPrompt?: string;    // istruzioni opzionali dall'admin
 }
 
@@ -52,6 +59,19 @@ COSA ANALIZZARE:
 3. GIORNI CONSECUTIVI ECCESSIVI: blocchi contigui allo stesso utente che superano 7 giorni consecutivi
 4. DISTRIBUZIONE STAGIONALE: qualcuno fa sempre i weekend di festività/agosto/natale?
 5. EVENTUALI ISTRUZIONI AGGIUNTIVE dell'amministratore (nel campo userPrompt)
+
+VALIDAZIONE OBBLIGATORIA PRIMA DI SUGGERIRE UNO SWAP (CRITICA):
+Prima di proporre uno scambio dove userId1 cede dates1 a userId2 e userId2 cede dates2 a userId1,
+DEVI verificare nella sezione "FERIE PER UTENTE" che:
+  a) userId2 NON abbia ferie in nessuna delle date in dates1 (altrimenti il conflitto si sposta su di lui)
+  b) userId1 NON abbia ferie in nessuna delle date in dates2
+
+Se lo swap crea un nuovo conflitto ferie sull'utente ricevente, NON proporlo.
+Cerca invece un altro candidato senza ferie in quel periodo.
+
+Se per un conflitto ferie NON esiste NESSUN utente disponibile senza ferie in quel periodo,
+produci un suggerimento di tipo "info" (action: null) con severity "high" che avvisa:
+"Tutti gli utenti disponibili sono in ferie in questo periodo: non è possibile risolvere il conflitto con uno scambio."
 
 FORMATO RISPOSTA:
 Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo aggiuntivo:
@@ -88,7 +108,8 @@ VINCOLI:
 - dates1 e dates2 devono appartenere RISPETTIVAMENTE a userId1 e userId2 nella programmazione attuale.
 - Suggerisci scambi solo su giorni FUTURI (isPast: false).
 - Produci da 3 a 8 suggerimenti totali, ordinati per gravità decrescente.
-- Non inventare date o user ID: usa solo i valori presenti nei dati forniti.`;
+- Non inventare date o user ID: usa solo i valori presenti nei dati forniti.
+- Non proporre mai uno swap che crea un conflitto ferie sull'utente ricevente.`;
 }
 
 function buildUserMessage(req: AiOnCallRequest): string {
@@ -131,6 +152,21 @@ function buildUserMessage(req: AiOnCallRequest): string {
     `(mostrati i prossimi ${futureSample.length} giorni su ${futureDays.length} totali futuri)`,
     daysTable,
   ];
+
+  // Ferie future per ciascun utente on-call (usate per il cross-check degli swap)
+  if (req.userVacations && req.userVacations.length > 0) {
+    parts.push(``, `## FERIE PER UTENTE (usa questa sezione per validare gli swap)`);
+    parts.push(`(formato: userId|userName: data1, data2, ...)`);
+    for (const uv of req.userVacations) {
+      parts.push(`- ${uv.userId}|${uv.userName}: ${uv.vacationDates.join(', ')}`);
+    }
+    parts.push(
+      ``,
+      `REMINDER: prima di suggerire uno swap, verifica che l'utente ricevente NON abbia ferie`,
+      `nelle date che gli verrebbero assegnate. Se tutti gli utenti sono in ferie nel periodo`,
+      `del conflitto, emetti un suggerimento di tipo "info" con severity "high" invece dello swap.`,
+    );
+  }
 
   if (req.userPrompt?.trim()) {
     parts.push(``, `## ISTRUZIONI AGGIUNTIVE DELL'AMMINISTRATORE`, req.userPrompt.trim());
