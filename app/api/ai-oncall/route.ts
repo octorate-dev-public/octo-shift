@@ -70,7 +70,10 @@ REGOLE INVARIABILI DEL SISTEMA
 PRIORITÀ DI INTERVENTO (in ordine decrescente)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔴 PRIORITÀ 1 — CONFLITTI FERIE (severity: high)
-   Giorni in cui l'utente assegnato ha hasVacation: true.
+   Giorni in cui l'utente assegnato ha hasVacation: true, PIÙ i weekend impliciti:
+   se un utente ha reperibilità di sabato o domenica E ha ferie il venerdì precedente
+   o il lunedì successivo, quel weekend va trattato come conflitto ferie (severity: high)
+   anche se hasVacation non è esplicitamente true per sabato/domenica.
    Vanno sempre risolti per primi. Per ciascun conflitto:
    - Identifica il/i giorno/i esatti in conflitto.
    - Trova il collega con meno giorni futuri (o meno giorni consecutivi) che
@@ -106,6 +109,13 @@ Prima di emettere qualsiasi suggerimento di tipo "swap", verifica nella sezione
   b) userId1 NON abbia ferie in nessuna data di dates2 (le date che riceverà).
   c) Lo swap non crei per nessuno dei due un nuovo blocco di più di 7 giorni
      consecutivi (considera i giorni già assegnati adiacenti alle date scambiate).
+  d) REGOLA WEEKEND: se una data ricevuta è sabato o domenica, l'utente ricevente
+     NON deve avere ferie il venerdì precedente NÉ il lunedì successivo a quel weekend.
+     Motivazione: ferie venerdì o lunedì adiacenti al weekend indicano quasi certamente
+     una vacanza che include il sabato/domenica — assegnare la reperibilità in quel
+     weekend sarebbe un conflitto pratico anche se non formalmente registrato.
+     Esempio: se l'utente ha ferie venerdì 23 maggio, non assegnargli sabato 24 né
+     domenica 25 maggio. Se ha ferie lunedì 26 maggio, stesso vincolo su 24 e 25.
 
 Se una di queste condizioni fallisce, scarta il candidato e cercane un altro.
 Solo se nessun candidato supera la validazione, emetti un "info" che spiega perché.
