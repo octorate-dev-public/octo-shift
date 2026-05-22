@@ -47,6 +47,14 @@ export default function UserLeavePage() {
   // Eliminazione
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
 
+  // Suggerisci periodo
+  const [suggestDays, setSuggestDays] = useState(1);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<Array<{
+    startDate: string; endDate: string; workingDays: number; peakAbsences: number; note: string;
+  }>>([]);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -151,6 +159,32 @@ export default function UserLeavePage() {
     setFormTimeStart('09:00');
     setFormTimeEnd('12:00');
     setAddError(null);
+    setSuggestions([]);
+    setSuggestError(null);
+  };
+
+  const handleSuggest = async () => {
+    if (!userId) return;
+    try {
+      setSuggesting(true);
+      setSuggestError(null);
+      setSuggestions([]);
+      const today = new Date().toISOString().split('T')[0];
+      const result = await api.post<{ suggestions: typeof suggestions }>('/api/vacation-suggest', {
+        userId,
+        days: suggestDays,
+        today,
+      });
+      if (result.suggestions.length === 0) {
+        setSuggestError('Nessun periodo libero trovato nei prossimi 31 giorni.');
+      } else {
+        setSuggestions(result.suggestions);
+      }
+    } catch (err: unknown) {
+      setSuggestError(err instanceof Error ? err.message : 'Errore nel suggerimento');
+    } finally {
+      setSuggesting(false);
+    }
   };
 
   // ── Delete helpers ─────────────────────────────────────────────
@@ -290,45 +324,115 @@ export default function UserLeavePage() {
 
               {/* Campi per FERIE multigiorno */}
               {formType === 'vacation' && (
-                <div className="flex flex-wrap gap-4 items-end">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Dal giorno
-                    </label>
-                    <input
-                      type="date"
-                      value={formStartDate}
-                      onChange={(e) => {
-                        setFormStartDate(e.target.value);
-                        if (!formEndDate || e.target.value > formEndDate)
-                          setFormEndDate(e.target.value);
-                      }}
-                      required
-                      min={`${currentYear}-01-01`}
-                      max={`${currentYear}-12-31`}
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
-                    />
+                <div className="space-y-4">
+                  {/* Suggerisci periodo */}
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-blue-800">✨ Trova il periodo migliore</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="text-sm text-blue-700 whitespace-nowrap">
+                        Ho bisogno di
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={suggestDays}
+                        onChange={(e) => {
+                          setSuggestDays(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)));
+                          setSuggestions([]);
+                          setSuggestError(null);
+                        }}
+                        className="w-16 px-2 py-1.5 border border-blue-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none bg-white"
+                      />
+                      <label className="text-sm text-blue-700 whitespace-nowrap">
+                        {suggestDays === 1 ? 'giorno lavorativo' : 'giorni lavorativi'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSuggest}
+                        disabled={suggesting}
+                        className="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                      >
+                        {suggesting ? 'Cerco...' : 'Suggerisci'}
+                      </button>
+                    </div>
+                    {suggestError && (
+                      <p className="text-xs text-red-600">{suggestError}</p>
+                    )}
+                    {suggestions.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-blue-600 font-medium">
+                          Clicca su un periodo per selezionarlo:
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {suggestions.map((s) => (
+                            <button
+                              key={s.startDate}
+                              type="button"
+                              onClick={() => {
+                                setFormStartDate(s.startDate);
+                                setFormEndDate(s.endDate);
+                              }}
+                              className={`text-left text-sm px-3 py-2 rounded-lg border transition font-medium ${
+                                formStartDate === s.startDate && formEndDate === s.endDate
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : s.peakAbsences === 0
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                  : s.peakAbsences <= 1
+                                  ? 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              {s.peakAbsences === 0 ? '🟢' : s.peakAbsences <= 1 ? '🟡' : '🟠'}{' '}
+                              {s.note}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Al giorno
-                    </label>
-                    <input
-                      type="date"
-                      value={formEndDate}
-                      onChange={(e) => setFormEndDate(e.target.value)}
-                      required
-                      min={formStartDate || `${currentYear}-01-01`}
-                      max={`${currentYear}-12-31`}
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
-                    />
+
+                  {/* Date manuali */}
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dal giorno
+                      </label>
+                      <input
+                        type="date"
+                        value={formStartDate}
+                        onChange={(e) => {
+                          setFormStartDate(e.target.value);
+                          if (!formEndDate || e.target.value > formEndDate)
+                            setFormEndDate(e.target.value);
+                        }}
+                        required
+                        min={`${currentYear}-01-01`}
+                        max={`${currentYear}-12-31`}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Al giorno
+                      </label>
+                      <input
+                        type="date"
+                        value={formEndDate}
+                        onChange={(e) => setFormEndDate(e.target.value)}
+                        required
+                        min={formStartDate || `${currentYear}-01-01`}
+                        max={`${currentYear}-12-31`}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    {formStartDate && formEndDate && formEndDate >= formStartDate && (
+                      <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                        ✈️ Verrà inserita una ferie per ogni giorno lavorativo (lun–ven) nel
+                        periodo selezionato.
+                      </p>
+                    )}
                   </div>
-                  {formStartDate && formEndDate && formEndDate >= formStartDate && (
-                    <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
-                      ✈️ Verrà inserita una ferie per ogni giorno lavorativo (lun–ven) nel
-                      periodo selezionato.
-                    </p>
-                  )}
                 </div>
               )}
 
