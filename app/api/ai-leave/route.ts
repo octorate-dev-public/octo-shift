@@ -160,6 +160,37 @@ function buildUserMessage(req: AiLeaveRequest): string {
     }
   }
 
+  // Permessi individuali per utente (per analisi pattern giorno-settimana e abuso)
+  const DAYS_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+  const permByUser = new Map<string, { name: string; entries: string[] }>();
+  for (const l of req.leaves) {
+    if (l.type !== 'permission') continue;
+    if (!permByUser.has(l.userId)) permByUser.set(l.userId, { name: l.userName, entries: [] });
+    const dow = DAYS_IT[new Date(l.date).getDay()];
+    const entry = l.note ? `${l.date}(${dow}) [${l.note}]` : `${l.date}(${dow})`;
+    permByUser.get(l.userId)!.entries.push(entry);
+  }
+  if (permByUser.size > 0) {
+    lines.push(``, `## PERMESSI BREVI PER DIPENDENTE (formato: data(giorno) [nota])`);
+    for (const { name, entries } of permByUser.values()) {
+      lines.push(`- ${name}: ${entries.join(', ')}`);
+    }
+  }
+
+  // Malattie individuali per utente (per analisi pattern e durata)
+  const sickByUser = new Map<string, { name: string; dates: string[] }>();
+  for (const l of req.leaves) {
+    if (l.type !== 'sick') continue;
+    if (!sickByUser.has(l.userId)) sickByUser.set(l.userId, { name: l.userName, dates: [] });
+    sickByUser.get(l.userId)!.dates.push(l.date);
+  }
+  if (sickByUser.size > 0) {
+    lines.push(``, `## MALATTIE PER DIPENDENTE`);
+    for (const { name, dates } of sickByUser.values()) {
+      lines.push(`- ${name}: ${dates.join(', ')}`);
+    }
+  }
+
   if (req.userPrompt?.trim()) {
     lines.push(``, `## ISTRUZIONI AGGIUNTIVE HR`, req.userPrompt.trim());
   }
