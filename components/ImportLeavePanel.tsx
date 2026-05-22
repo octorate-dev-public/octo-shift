@@ -315,6 +315,17 @@ export default function ImportLeavePanel({ users, onImportDone, onClose }: Props
     setStep('preview');
   };
 
+  // ── Abbinamento per nome: una sola selezione aggiorna tutte le righe ─────
+  const uniqueUnmatched = Array.from(
+    new Set(previewRows.filter((r) => !r.matchedUserId).map((r) => r.rawName)),
+  );
+
+  const handleResolveByName = (rawName: string, userId: string) => {
+    setPreviewRows((rows) =>
+      rows.map((r) => (r.rawName === rawName ? { ...r, matchedUserId: userId } : r)),
+    );
+  };
+
   // ── Step 3 → 4: Importazione ────────────────────────────────────────────
   const handleImport = async () => {
     setImporting(true);
@@ -616,15 +627,49 @@ export default function ImportLeavePanel({ users, onImportDone, onClose }: Props
             <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">
               ✓ {previewRows.filter((r) => r.matchedUserId).length} abbinate
             </span>
-            {previewRows.some((r) => !r.matchedUserId) && (
+            {uniqueUnmatched.length > 0 && (
               <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full">
-                ⚠ {previewRows.filter((r) => !r.matchedUserId).length} da abbinare
+                ⚠ {uniqueUnmatched.length}{' '}
+                {uniqueUnmatched.length === 1 ? 'nome non riconosciuto' : 'nomi non riconosciuti'}
               </span>
             )}
           </div>
 
-          {/* Tabella */}
-          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
+          {/* ── Pannello nomi non riconosciuti ── */}
+          {uniqueUnmatched.length > 0 && (
+            <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-4 space-y-3">
+              <p className="text-sm font-medium text-yellow-800">
+                Nomi non riconosciuti — abbina una volta, si aggiornano tutte le righe
+              </p>
+              <div className="space-y-2">
+                {uniqueUnmatched.map((rawName) => (
+                  <div key={rawName} className="flex items-center gap-3">
+                    <span className="text-sm text-yellow-900 font-mono bg-yellow-100 border border-yellow-200 rounded px-2 py-0.5 shrink-0 max-w-[180px] truncate" title={rawName}>
+                      {rawName}
+                    </span>
+                    <span className="text-yellow-400 text-xs">→</span>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) handleResolveByName(rawName, e.target.value);
+                      }}
+                      className="flex-1 px-2 py-1.5 border border-yellow-400 rounded-lg text-sm outline-none focus:ring-2 focus:ring-yellow-500 bg-white"
+                    >
+                      <option value="">— seleziona dipendente —</option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tabella riepilogo */}
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-80 overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
@@ -643,51 +688,53 @@ export default function ImportLeavePanel({ users, onImportDone, onClose }: Props
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {previewRows.map((row, idx) => (
-                  <tr key={idx} className={row.matchedUserId ? '' : 'bg-yellow-50'}>
-                    <td className="px-4 py-2 text-gray-400 text-xs">{row.rawName}</td>
-                    <td className="px-4 py-2">
-                      <select
-                        value={row.matchedUserId}
-                        onChange={(e) => {
-                          const updated = previewRows.map((r, i) =>
-                            i === idx ? { ...r, matchedUserId: e.target.value } : r,
-                          );
-                          setPreviewRows(updated);
-                        }}
-                        className={`w-full px-2 py-1 border rounded text-xs outline-none focus:ring-1 focus:ring-emerald-500 ${
-                          row.matchedUserId
-                            ? 'border-gray-300'
-                            : 'border-yellow-400 bg-yellow-50'
-                        }`}
-                      >
-                        <option value="">— non abbinato —</option>
-                        {users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-2 text-gray-600 text-xs whitespace-nowrap">
-                      {fmtDate(row.startDate)}
-                    </td>
-                    <td className="px-4 py-2 text-gray-600 text-xs whitespace-nowrap">
-                      {fmtDate(row.endDate)}
-                    </td>
-                  </tr>
-                ))}
+                {previewRows.map((row, idx) => {
+                  const matchedUser = users.find((u) => u.id === row.matchedUserId);
+                  return (
+                    <tr key={idx} className={row.matchedUserId ? '' : 'bg-yellow-50 opacity-60'}>
+                      <td className="px-4 py-2 text-gray-400 text-xs">{row.rawName}</td>
+                      <td className="px-4 py-2 text-xs">
+                        {matchedUser ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-700 font-medium">
+                              {matchedUser.full_name}
+                            </span>
+                            {/* Sostituzione singola riga */}
+                            <select
+                              value={row.matchedUserId}
+                              onChange={(e) =>
+                                setPreviewRows((rows) =>
+                                  rows.map((r, i) =>
+                                    i === idx ? { ...r, matchedUserId: e.target.value } : r,
+                                  ),
+                                )
+                              }
+                              className="text-xs text-gray-400 border-none bg-transparent cursor-pointer outline-none hover:text-gray-600"
+                              title="Cambia solo questa riga"
+                            >
+                              {users.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <span className="text-yellow-600">⚠ non abbinato</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-gray-600 text-xs whitespace-nowrap">
+                        {fmtDate(row.startDate)}
+                      </td>
+                      <td className="px-4 py-2 text-gray-600 text-xs whitespace-nowrap">
+                        {fmtDate(row.endDate)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-
-          {previewRows.some((r) => !r.matchedUserId) && (
-            <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
-              ⚠️ Le righe evidenziate in giallo non hanno un dipendente abbinato e verranno
-              saltate. Seleziona manualmente il dipendente corretto o lascialo vuoto per
-              escluderle.
-            </p>
-          )}
 
           <div className="flex gap-3 pt-1">
             <button

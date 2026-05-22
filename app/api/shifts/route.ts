@@ -28,6 +28,12 @@ export const GET = withHandler('api/shifts', 'GET', async (req) => {
     return jsonOk(shifts);
   }
 
+  // GET /api/shifts?year=2026&leaveOnly=true → tutte le assenze dell'anno (AI ferie)
+  if (p.has('year') && p.get('leaveOnly') === 'true') {
+    const shifts = await shiftsAPI.getYearLeaves(parseInt(p.get('year')!));
+    return jsonOk(shifts);
+  }
+
   if (p.has('userId') && p.has('start') && p.has('end')) {
     const shifts = await shiftsAPI.getUserShifts(
       p.get('userId')!,

@@ -382,4 +382,27 @@ export const shiftsAPI = {
       return stats;
     });
   },
+
+  /**
+   * Recupera tutte le assenze (vacation / permission / sick) di un anno intero.
+   * Usato dall'AI Assistant ferie per l'analisi annuale.
+   */
+  async getYearLeaves(year: number): Promise<Shift[]> {
+    return log.withTiming('getYearLeaves', { year }, async () => {
+      const startDate = `${year}-01-01`;
+      const endDate   = `${year}-12-31`;
+
+      const { data, error } = await supabase
+        .from('shifts')
+        .select('*')
+        .gte('shift_date', startDate)
+        .lte('shift_date', endDate)
+        .not('leave_type', 'is', null)
+        .order('shift_date', { ascending: true });
+
+      if (error) throw toAppError(error, 'Impossibile caricare le assenze annuali');
+      log.info('getYearLeaves', `Caricate ${(data || []).length} assenze per ${year}`);
+      return data || [];
+    });
+  },
 };
