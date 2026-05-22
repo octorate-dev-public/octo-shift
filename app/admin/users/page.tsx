@@ -6,6 +6,65 @@ import { api } from '@/lib/fetcher';
 import { User, Team } from '@/types';
 import { getInitials, getSeniorityDays } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import RulesPanel from '@/components/RulesPanel';
+import type { RulesSection } from '@/components/RulesPanel';
+
+const USERS_RULES: RulesSection[] = [
+  {
+    icon: '🔑',
+    title: 'Ruoli e accessi',
+    items: [
+      'Admin: accesso completo a schedule, reperibilità, ferie, impostazioni e gestione dipendenti.',
+      'User: visualizza il calendario mensile, esprime preferenze, richiede cambio turno.',
+      'Il ruolo si modifica solo da questa pagina — comunicare la nuova password all\'utente dopo la creazione.',
+    ],
+  },
+  {
+    icon: '📅',
+    title: 'Anzianità aziendale',
+    items: [
+      'La "Data anzianità" è il punto di partenza per calcolare quanti anni/mesi di servizio ha il dipendente.',
+      'Nella generazione dello schedule, a parità di punteggio equità i dipendenti più anziani ottengono priorità ufficio.',
+      'Viene mostrata in forma compatta (es. "3a 4m") nella tabella.',
+    ],
+  },
+  {
+    icon: '📞',
+    title: 'Reperibilità',
+    items: [
+      '"Reperibilità attiva" include il dipendente nella rotazione round-robin on-call.',
+      'Disattivandola il dipendente viene escluso dalla generazione futura, ma i turni già assegnati rimangono.',
+      'Si può modificare in qualsiasi momento senza perdere la storico.',
+    ],
+  },
+  {
+    icon: '🏠',
+    title: 'Stile di distribuzione smart',
+    items: [
+      '"Stabile": il sistema tende a mantenere lo stesso giorno ufficio/smart ogni settimana (coerenza visiva).',
+      '"Random": la distribuzione varia settimana per settimana per massimizzare l\'equità a lungo termine.',
+      'Lo stile pesa meno di equità, riunioni di team e anzianità — non le batte mai.',
+    ],
+  },
+  {
+    icon: '🚫',
+    title: 'Rinuncia smart',
+    items: [
+      'Attivando "Rinuncia smart" il dipendente viene sempre assegnato all\'ufficio.',
+      'Non viene incluso nel calcolo dell\'equità smartwork, quindi non influenza la media degli altri.',
+      'Utile per ruoli che richiedono presenza fisica costante.',
+    ],
+  },
+  {
+    icon: '🏷️',
+    title: 'Ruoli tecnici (skill)',
+    items: [
+      'I ruoli tecnici (BACKEND, FRONTEND, QUALITY…) sono multi-select e configurabili in Impostazioni.',
+      'L\'AI Analisi Ferie li usa per raggruppare i dipendenti e valutare l\'equità e la copertura per specializzazione.',
+      'Non influenzano la generazione dello schedule o della reperibilità.',
+    ],
+  },
+];
 
 interface UserFormState {
   fullName: string;
@@ -248,6 +307,9 @@ export default function UsersPage() {
             </button>
           )}
         </div>
+
+        {/* Pannello regole */}
+        <RulesPanel label="Come funzionano i parametri dei dipendenti" sections={USERS_RULES} />
 
         {/* Inline form */}
         {showForm && (

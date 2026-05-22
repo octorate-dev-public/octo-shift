@@ -9,6 +9,65 @@ import { api } from '@/lib/fetcher';
 import { ShiftWithUser, User, Team, ShiftPreference, PreferenceType, LeaveType } from '@/types';
 import type { SwapCell } from '@/components/Calendar';
 import { useAuth } from '@/lib/useAuth';
+import RulesPanel from '@/components/RulesPanel';
+import type { RulesSection } from '@/components/RulesPanel';
+
+const SCHEDULE_RULES: RulesSection[] = [
+  {
+    icon: '⚖️',
+    title: 'Equità (priorità principale)',
+    items: [
+      'Chi ha accumulato più giorni smart rispetto alla media mensile ottiene priorità ufficio.',
+      'L\'obiettivo è bilanciare i giorni smart di ogni dipendente nel corso del mese.',
+      'Dipendenti con "rinuncia smart" sono sempre assegnati all\'ufficio e vengono esclusi dal calcolo dell\'equità.',
+    ],
+  },
+  {
+    icon: '📅',
+    title: 'Riunioni di team',
+    items: [
+      'Il giorno settimanale di riunione del team garantisce (quasi) la presenza in ufficio.',
+      'Il bonus riunione ha peso 10×, superiore a equità, seniority e preferenza.',
+      'Se la capienza è già piena, anche il giorno di riunione può risultare smart.',
+    ],
+  },
+  {
+    icon: '🏅',
+    title: 'Anzianità (tiebreaker)',
+    items: [
+      'A parità di punteggio equità, i dipendenti più anziani hanno priorità ufficio.',
+      'L\'anzianità è calcolata dalla data di inizio rapporto (campo "Data anzianità").',
+      'Peso lineare: il dipendente più senior prende +2 punti, il meno senior +0.',
+    ],
+  },
+  {
+    icon: '🏠',
+    title: 'Preferenze personali',
+    items: [
+      '"Ufficio" aggiunge +3 punti, "Indifferente" +1, "Casa" +0.',
+      'Le preferenze pesano meno di equità e riunione — non le battono.',
+      'Le preferenze si impostano mese per mese dalla propria dashboard.',
+    ],
+  },
+  {
+    icon: '📆',
+    title: 'Stile di distribuzione',
+    items: [
+      '"Stabile": tende a mantenere lo stesso giorno ufficio/smart ogni settimana (±0.8 punti).',
+      '"Random": introduce una variazione casuale (±0.25) per distribuire i turni in modo vario.',
+      'Lo stile non batte mai equità, riunioni o anzianità.',
+    ],
+  },
+  {
+    icon: '🔒',
+    title: 'Turni bloccati e assenze',
+    items: [
+      'I turni bloccati dall\'admin non vengono mai modificati dalla generazione automatica.',
+      'Ferie, permessi e malattia si sovrappongono al turno del giorno e hanno sempre priorità.',
+      'Weekend e festività configurate nelle impostazioni vengono saltati automaticamente.',
+    ],
+  },
+];
 
 export default function SchedulePage() {
   const { userId } = useAuth();
@@ -209,6 +268,9 @@ export default function SchedulePage() {
             </button>
           </div>
         </div>
+
+        {/* Pannello regole algoritmo */}
+        <RulesPanel label="Come funziona la generazione automatica dello schedule" sections={SCHEDULE_RULES} />
 
         {/* KEROS error */}
         {kerosError && (

@@ -7,6 +7,67 @@ import { supabase } from '@/lib/supabase';
 import { OnCallDailyAssignment, User } from '@/types';
 import { formatDate, parseDateString } from '@/lib/utils';
 import type { AiSuggestion, AiSuggestionAction } from '@/types';
+import RulesPanel from '@/components/RulesPanel';
+import type { RulesSection } from '@/components/RulesPanel';
+
+const ONCALL_RULES: RulesSection[] = [
+  {
+    icon: '🔄',
+    title: 'Rotazione round-robin',
+    items: [
+      'La generazione automatica assegna i giorni in round-robin tra tutti i dipendenti con "Reperibilità attiva".',
+      'I turni partono dal dipendente con meno giorni accumulati, garantendo distribuzione equa.',
+      'L\'ordine iniziale segue l\'anzianità aziendale.',
+    ],
+  },
+  {
+    icon: '📆',
+    title: 'Blocchi settimanali',
+    items: [
+      'La rotazione avviene in blocchi di 7 giorni (lun–dom).',
+      'Ogni persona copre una settimana intera prima che la rotazione passi al collega successivo.',
+      'Puoi spezzare manualmente i blocchi con il tasto ↕ o cliccando sul pallino del singolo giorno.',
+    ],
+  },
+  {
+    icon: '⚠️',
+    title: 'Conflitti ferie (massima priorità)',
+    items: [
+      'Se il reperibile è in ferie quel giorno, la cella mostra il bordo rosso ⚠.',
+      'Il contatore "Conflitti ferie" in alto riepiloga quanti giorni sono in conflitto.',
+      'L\'AI Assistant risolve i conflitti con swap mirati al singolo giorno, verificando che il collega ricevente non sia anch\'egli in ferie.',
+    ],
+  },
+  {
+    icon: '📏',
+    title: 'Max 7 giorni consecutivi',
+    items: [
+      'La rotazione standard non supera mai 7 giorni consecutivi per la stessa persona.',
+      'Se due blocchi consecutivi capitano allo stesso utente (es. dopo uno swap), il contatore ">7gg consecutivi" lo segnala.',
+      'L\'AI ha istruzioni esplicite per spezzare blocchi eccessivi come seconda priorità dopo i conflitti ferie.',
+    ],
+  },
+  {
+    icon: '🤖',
+    title: 'AI Assistant',
+    items: [
+      'Priorità 1 — Conflitti ferie: propone swap del singolo giorno con un collega libero da ferie.',
+      'Priorità 2 — Blocchi >7gg: spezza la consecutività cedendo il minimo indispensabile.',
+      'Priorità 3 — Equità: riequilibra i giorni futuri se qualcuno è molto sopra o sotto la media.',
+      'Prima di ogni swap verifica che non crei nuovi conflitti o nuove consecutività eccessive.',
+    ],
+  },
+  {
+    icon: '🔀',
+    title: 'Scambi manuali',
+    items: [
+      'Clic sul pallino → seleziona un secondo pallino per scambiare quel singolo giorno.',
+      'Tasto ↕ → scambia l\'intera settimana tra due persone.',
+      'Tasto + tratteggiato → riassegna il giorno a un altro dipendente (non simmetrico).',
+      'Il pallino + appare rosso tratteggiato se il dipendente è in ferie quel giorno.',
+    ],
+  },
+];
 
 // ─── Costanti ────────────────────────────────────────────────────────────────
 const GIORNI_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -648,6 +709,9 @@ export default function AdminOnCallMatricePage() {
           <StatCard label="Conflitti ferie"     value={stats.conflicts} color={stats.conflicts > 0 ? 'amber' : 'gray'} />
           <StatCard label=">7gg consecutivi"    value={stats.violations}color={stats.violations > 0 ? 'rose' : 'gray'} />
         </div>
+
+        {/* Pannello regole algoritmo */}
+        <RulesPanel label="Come funziona la reperibilità" sections={ONCALL_RULES} />
 
         {/* Legenda utenti */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">

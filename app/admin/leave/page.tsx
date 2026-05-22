@@ -15,6 +15,58 @@ import {
   groupVacationBlocks,
 } from '@/lib/utils';
 import type { AiLeaveSuggestion } from '@/types';
+import RulesPanel from '@/components/RulesPanel';
+import type { RulesSection } from '@/components/RulesPanel';
+
+const LEAVE_RULES: RulesSection[] = [
+  {
+    icon: '🏖️',
+    title: 'Tipi di assenza',
+    items: [
+      'Ferie: giorni di riposo pianificati, limite standard di 26 giorni lavorativi per anno.',
+      'Permesso: assenze brevi (ore o giornata intera). La nota permette di indicare l\'orario esatto (es. "dalle 09:00 alle 12:00 (3h)").',
+      'Malattia: inserita a posteriori, non soggetta al limite ferie.',
+    ],
+  },
+  {
+    icon: '📊',
+    title: 'Calcolo giorni ferie',
+    items: [
+      'Vengono contati solo i giorni lavorativi (lun–ven, escluse festività configurate).',
+      'Le ferie si sovrappongono al turno del giorno: il turno rimane ma risulta assente.',
+      'Il contatore annuale mostrato nel pannello AI include ferie già prese + quelle pianificate future.',
+    ],
+  },
+  {
+    icon: '🤖',
+    title: 'AI Analisi Ferie',
+    items: [
+      'Sforamento: rileva chi ha già superato o rischia di superare i 26gg entro fine anno.',
+      'Copertura: segnala periodi in cui più persone dello stesso team o skill sono assenti insieme.',
+      'Equità: confronta i giorni presi tra colleghi con ruolo e team simili.',
+      'Pattern anomali: chi non prende mai ferie (rischio burnout), blocchi molto lunghi, ferie concentrate in un solo mese.',
+      'Previsioni: stima chi esaurirà le ferie prima o arriverà a fine anno con molti giorni non goduti.',
+    ],
+  },
+  {
+    icon: '👥',
+    title: 'Ruoli tecnici e team',
+    items: [
+      'L\'AI raggruppa i dipendenti per ruolo (BACKEND, FRONTEND, QUALITY…) e per team.',
+      'I confronti di equità avvengono tra persone dello stesso profilo, non su tutta l\'azienda.',
+      'I ruoli si configurano in Impostazioni → Ruoli Tecnici e si assegnano in Gestione Dipendenti.',
+    ],
+  },
+  {
+    icon: '📥',
+    title: 'Importazione da Excel',
+    items: [
+      'Il pulsante "Importa da Excel" accetta file .xlsx con colonne: Nominativo, Tipo, Data inizio, Data fine.',
+      'Ogni riga genera automaticamente le assenze per tutti i giorni lavorativi del periodo.',
+      'I nominativi vengono abbinati per nome: assicurati che corrispondano esattamente a quelli in sistema.',
+    ],
+  },
+];
 
 type LeaveType = 'vacation' | 'permission';
 type FilterType = 'all' | 'vacation' | 'permission';
@@ -393,6 +445,9 @@ export default function AdminLeavePage() {
             </button>
           </div>
         </div>
+
+        {/* Pannello regole */}
+        <RulesPanel label="Come funziona la gestione assenze" sections={LEAVE_RULES} />
 
         {/* Month navigation */}
         <div className="flex items-center justify-between bg-white p-4 rounded-lg shadow">
