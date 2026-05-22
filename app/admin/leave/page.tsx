@@ -14,7 +14,7 @@ import {
   formatPermissionNote,
   groupVacationBlocks,
 } from '@/lib/utils';
-import type { AiLeaveSuggestion } from '@/app/api/ai-leave/route';
+import type { AiLeaveSuggestion } from '@/lib/types/ai-leave';
 
 type LeaveType = 'vacation' | 'permission';
 type FilterType = 'all' | 'vacation' | 'permission';

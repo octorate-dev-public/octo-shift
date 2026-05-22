@@ -6,7 +6,7 @@ import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { OnCallDailyAssignment, User } from '@/types';
 import { formatDate, parseDateString } from '@/lib/utils';
-import type { AiSuggestion, AiSuggestionAction } from '@/app/api/ai-oncall/route';
+import type { AiSuggestion, AiSuggestionAction } from '@/lib/types/ai-oncall';
 
 // ─── Costanti ────────────────────────────────────────────────────────────────
 const GIORNI_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];

@@ -30,23 +30,8 @@ interface AiOnCallRequest {
 
 // ─── Tipi della risposta ─────────────────────────────────────────────────────
 
-export interface AiSuggestionAction {
-  userId1: string;
-  userName1: string;
-  dates1: string[];
-  userId2: string;
-  userName2: string;
-  dates2: string[];
-}
-
-export interface AiSuggestion {
-  id: string;
-  type: 'swap' | 'info';
-  severity: 'high' | 'medium' | 'low' | 'info';
-  title: string;
-  description: string;
-  action?: AiSuggestionAction;
-}
+export type { AiSuggestion, AiSuggestionAction } from '@/lib/types/ai-oncall';
+import type { AiSuggestion } from '@/lib/types/ai-oncall';
 
 // ─── Costruzione prompt ───────────────────────────────────────────────────────
 
