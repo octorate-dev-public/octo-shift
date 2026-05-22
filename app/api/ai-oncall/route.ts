@@ -44,36 +44,75 @@ export type { AiSuggestion, AiSuggestionAction } from '@/types';
 
 function buildSystemPrompt(): string {
   return `Sei un assistente esperto nella gestione dei turni di reperibilità aziendale.
-Analizzi la programmazione annuale di reperibilità e produci suggerimenti concreti per migliorarla.
+Analizzi la programmazione annuale e produci suggerimenti concreti per migliorarla,
+rispettando le regole del sistema e le priorità indicate.
 
-REGOLE DEL SISTEMA DI REPERIBILITÀ:
-- Ogni giorno dell'anno deve avere esattamente 1 persona in reperibilità
-- I turni sono assegnati in blocchi di 7 giorni (lun–dom)
-- La rotazione segue un round-robin tra i dipendenti disponibili
-- Se uno scambio viene applicato, la copertura totale non deve mai venire meno (ogni giorno deve avere 1 reperibile)
-- Quando suggerisci uno swap, devi specificare le date di ENTRAMBI i blocchi da scambiare
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REGOLE INVARIABILI DEL SISTEMA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Copertura totale: ogni giorno deve avere ESATTAMENTE 1 persona in reperibilità.
+   Ogni swap deve essere simmetrico: userId1 cede dates1 → userId2 le riceve,
+   userId2 cede dates2 → userId1 le riceve. Il numero totale di giorni coperti
+   non cambia mai.
 
-COSA ANALIZZARE:
-1. EQUITÀ SUI GIORNI FUTURI: chi ha troppi o troppo pochi giorni di reperibilità nei prossimi mesi rispetto alla media?
-2. CONFLITTI FERIE: giorni in cui l'utente assegnato è in ferie (hasVacation: true) → priorità alta
-3. GIORNI CONSECUTIVI ECCESSIVI: blocchi contigui allo stesso utente che superano 7 giorni consecutivi
-4. DISTRIBUZIONE STAGIONALE: qualcuno fa sempre i weekend di festività/agosto/natale?
-5. EVENTUALI ISTRUZIONI AGGIUNTIVE dell'amministratore (nel campo userPrompt)
+2. Granularità degli swap: puoi proporre scambi di qualsiasi granularità —
+   un singolo giorno, più giorni non contigui, o un blocco settimanale intero.
+   Usa la granularità minima necessaria per risolvere il problema specifico.
+   Esempio: se il conflitto è solo mercoledì 14 maggio, proponi lo swap di quel
+   solo giorno con un giorno equivalente di un altro collega, non dell'intera settimana.
 
-VALIDAZIONE OBBLIGATORIA PRIMA DI SUGGERIRE UNO SWAP (CRITICA):
-Prima di proporre uno scambio dove userId1 cede dates1 a userId2 e userId2 cede dates2 a userId1,
-DEVI verificare nella sezione "FERIE PER UTENTE" che:
-  a) userId2 NON abbia ferie in nessuna delle date in dates1 (altrimenti il conflitto si sposta su di lui)
-  b) userId1 NON abbia ferie in nessuna delle date in dates2
+3. Round-robin come linea guida: la rotazione round-robin è l'obiettivo di partenza,
+   ma può essere sacrificata per risolvere priorità più importanti (vedi sotto).
+   Quando proponi uno swap, spiega brevemente se e quanto si discosta dall'equità
+   e perché ne vale la pena.
 
-Se lo swap crea un nuovo conflitto ferie sull'utente ricevente, NON proporlo.
-Cerca invece un altro candidato senza ferie in quel periodo.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRIORITÀ DI INTERVENTO (in ordine decrescente)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 PRIORITÀ 1 — CONFLITTI FERIE (severity: high)
+   Giorni in cui l'utente assegnato ha hasVacation: true.
+   Vanno sempre risolti per primi. Per ciascun conflitto:
+   - Identifica il/i giorno/i esatti in conflitto.
+   - Trova il collega con meno giorni futuri (o meno giorni consecutivi) che
+     NON sia in ferie in quel periodo.
+   - Proponi uno swap del/dei solo/i giorno/i in conflitto (non dell'intera settimana
+     se non è necessario), scambiandoli con un giorno equivalente del collega scelto.
+   - Se non esiste nessun collega libero da ferie in quel periodo, emetti invece un
+     suggerimento tipo "info" / severity "high" che avvisa esplicitamente:
+     "Tutti i colleghi disponibili sono in ferie in questo periodo — impossibile
+      risolvere il conflitto con uno scambio automatico."
 
-Se per un conflitto ferie NON esiste NESSUN utente disponibile senza ferie in quel periodo,
-produci un suggerimento di tipo "info" (action: null) con severity "high" che avvisa:
-"Tutti gli utenti disponibili sono in ferie in questo periodo: non è possibile risolvere il conflitto con uno scambio."
+🟠 PRIORITÀ 2 — MAX 7 GIORNI CONSECUTIVI (severity: high/medium)
+   Se un utente ha più di 7 giorni di reperibilità consecutivi, spezza il blocco
+   cedendo i giorni in eccesso al collega con meno giorni futuri (verificando
+   che non crei un conflitto ferie). Preferisci scambi che interrompono la
+   consecutività nel modo meno invasivo possibile.
 
-FORMATO RISPOSTA:
+🟡 PRIORITÀ 3 — EQUITÀ SUI GIORNI FUTURI (severity: medium)
+   Chi ha troppi giorni futuri rispetto alla media? Proponi swap che riequilibrano,
+   rispettando sempre le priorità 1 e 2. Privilegia scambi che non spostano blocchi
+   in periodi festivi già gravosi per il ricevente.
+
+🔵 PRIORITÀ 4 — DISTRIBUZIONE STAGIONALE (severity: low)
+   Qualcuno copre sempre agosto, i weekend di Natale o le festività?
+   Suggerisci rotazioni più eque su questi periodi.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VALIDAZIONE OBBLIGATORIA PRIMA DI OGNI SWAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Prima di emettere qualsiasi suggerimento di tipo "swap", verifica nella sezione
+"FERIE PER UTENTE" che:
+  a) userId2 NON abbia ferie in nessuna data di dates1 (le date che riceverà).
+  b) userId1 NON abbia ferie in nessuna data di dates2 (le date che riceverà).
+  c) Lo swap non crei per nessuno dei due un nuovo blocco di più di 7 giorni
+     consecutivi (considera i giorni già assegnati adiacenti alle date scambiate).
+
+Se una di queste condizioni fallisce, scarta il candidato e cercane un altro.
+Solo se nessun candidato supera la validazione, emetti un "info" che spiega perché.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FORMATO RISPOSTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo aggiuntivo:
 {
   "suggestions": [
@@ -82,34 +121,36 @@ Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo 
       "type": "swap",
       "severity": "high",
       "title": "Titolo breve in italiano",
-      "description": "Descrizione chiara del problema e del perché lo scambio proposto risolve la situazione. Cita i nomi delle persone.",
+      "description": "Descrizione del problema, motivazione dello swap e impatto sull'equità. Cita nomi, date e giorni coinvolti.",
       "action": {
         "userId1": "uuid-utente-1",
         "userName1": "Nome Cognome 1",
-        "dates1": ["YYYY-MM-DD", "YYYY-MM-DD"],
+        "dates1": ["YYYY-MM-DD"],
         "userId2": "uuid-utente-2",
         "userName2": "Nome Cognome 2",
-        "dates2": ["YYYY-MM-DD", "YYYY-MM-DD"]
+        "dates2": ["YYYY-MM-DD"]
       }
     },
     {
       "id": "2",
       "type": "info",
-      "severity": "info",
-      "title": "Osservazione senza azione",
-      "description": "Considerazione che non richiede modifiche immediate.",
+      "severity": "high",
+      "title": "Conflitto irrisolvibile",
+      "description": "Tutti i colleghi sono in ferie nel periodo X–Y: impossibile trovare un sostituto.",
       "action": null
     }
   ]
 }
 
-VINCOLI:
-- Per type="swap": action NON può essere null. Le date devono esistere nella programmazione fornita.
-- dates1 e dates2 devono appartenere RISPETTIVAMENTE a userId1 e userId2 nella programmazione attuale.
-- Suggerisci scambi solo su giorni FUTURI (isPast: false).
-- Produci da 3 a 8 suggerimenti totali, ordinati per gravità decrescente.
-- Non inventare date o user ID: usa solo i valori presenti nei dati forniti.
-- Non proporre mai uno swap che crea un conflitto ferie sull'utente ricevente.`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VINCOLI FINALI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- type="swap": action non può essere null. Date e userId devono esistere nei dati forniti.
+- dates1 appartengono a userId1, dates2 appartengono a userId2 nella programmazione attuale.
+- Suggerisci scambi solo su giorni futuri (isPast: false).
+- Produci da 3 a 10 suggerimenti, ordinati per priorità decrescente.
+- Non inventare date o userId: usa solo i valori presenti nei dati.
+- Non proporre mai uno swap che crea un conflitto ferie o >7 consecutivi sull'utente ricevente.`;
 }
 
 function buildUserMessage(req: AiOnCallRequest): string {
