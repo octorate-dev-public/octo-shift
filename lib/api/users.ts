@@ -12,6 +12,7 @@ function mapUser(raw: any): User {
     renounce_smart: raw.renounce_smart ?? false,
     on_call_available: raw.on_call_available ?? true,
     schedule_style: (raw.schedule_style === 'stable' ? 'stable' : 'random') as 'stable' | 'random',
+    skill_roles: Array.isArray(raw.skill_roles) ? raw.skill_roles : [],
   };
 }
 

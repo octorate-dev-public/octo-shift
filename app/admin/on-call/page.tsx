@@ -202,8 +202,11 @@ export default function AdminOnCallMatricePage() {
   // ─── Caricamento ──────────────────────────────────────────────────────────
   const loadVacations = useCallback(async (yr: number) => {
     try {
+      // ⚠️ Fix: usare leaveOnly=true (endpoint corretto) invece del parametro
+      //    leaveType=vacation che non esiste nella route e causava un 400 silenzioso,
+      //    rendendo vacationDates sempre vuoto e il bordo rosso mai visibile.
       const shifts = await api.get<Array<{ user_id: string; shift_date: string; leave_type: string | null }>>(
-        `/api/shifts?year=${yr}&leaveType=vacation`,
+        `/api/shifts?year=${yr}&leaveOnly=true`,
       );
       const map = new Map<string, Set<string>>();
       for (const s of shifts) {

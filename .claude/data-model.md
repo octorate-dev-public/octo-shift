@@ -50,6 +50,7 @@ Le assenze **NON consumano** capienza ufficio né contano nello smart-day equity
 - `renounce_smart` (bool) — escluso dal pool di equità: va sempre in ufficio per primo.
 - `on_call_available` (bool) — true = entra nella rotazione on-call.
 - `schedule_style` ∈ {`stable`, `random`} — stable = tendenzialmente stesso giorno smart ogni settimana, random = distribuzione variata.
+- `skill_roles` (text[]) — ruoli tecnici multipli (es. `['BACKEND', 'QUALITY']`). Lista configurabile in `settings.user_skill_roles` (default `BACKEND,FRONTEND,QUALITY`). Migrazione: `2026-05-22-add-skill-roles.sql`.
 - `team_ids: string[]` — campo VIRTUALE (popolato in [`usersAPI`](../lib/api/users.ts) dal join `user_teams`). `team_id` resta come legacy single-team.
 
 ## Tipi calcolati (non DB)

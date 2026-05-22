@@ -16,6 +16,7 @@ interface UserFormState {
   teamIds: string[];
   onCallAvailable: boolean;
   scheduleStyle: 'stable' | 'random';
+  skillRoles: string[];
 }
 
 const emptyForm = (): UserFormState => ({
@@ -27,6 +28,7 @@ const emptyForm = (): UserFormState => ({
   teamIds: [],
   onCallAvailable: true,
   scheduleStyle: 'random',
+  skillRoles: [],
 });
 
 function generateRandomPassword(): string {
@@ -46,6 +48,7 @@ function formatSeniority(seniorityDate: string): string {
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [availableSkillRoles, setAvailableSkillRoles] = useState<string[]>(['BACKEND', 'FRONTEND', 'QUALITY']);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -62,12 +65,20 @@ export default function UsersPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersData, teamsData] = await Promise.all([
+      const [usersData, teamsData, settingsData] = await Promise.all([
         api.get<User[]>('/api/users'),
         api.get<Team[]>('/api/teams'),
+        api.get<Record<string, string>>('/api/settings'),
       ]);
       setUsers(usersData);
       setTeams(teamsData);
+      if (settingsData.user_skill_roles) {
+        const roles = settingsData.user_skill_roles
+          .split(',')
+          .map((r: string) => r.trim().toUpperCase())
+          .filter(Boolean);
+        if (roles.length > 0) setAvailableSkillRoles(roles);
+      }
     } catch (e: any) {
       setError(e.message ?? 'Errore nel caricamento dei dati');
     } finally {
@@ -94,6 +105,7 @@ export default function UsersPage() {
       teamIds: user.team_ids ?? [],
       onCallAvailable: user.on_call_available ?? true,
       scheduleStyle: user.schedule_style ?? 'random',
+      skillRoles: user.skill_roles ?? [],
     });
     setShowForm(true);
     setShowPassword(false);
@@ -149,6 +161,7 @@ export default function UsersPage() {
           teamIds: form.teamIds,
           onCallAvailable: form.onCallAvailable,
           scheduleStyle: form.scheduleStyle,
+          skillRoles: form.skillRoles,
         });
       } else {
         await api.post('/api/users', {
@@ -192,6 +205,29 @@ export default function UsersPage() {
         ? prev.teamIds.filter((id) => id !== teamId)
         : [...prev.teamIds, teamId],
     }));
+  };
+
+  const toggleSkillRole = (role: string) => {
+    setForm((prev) => ({
+      ...prev,
+      skillRoles: prev.skillRoles.includes(role)
+        ? prev.skillRoles.filter((r) => r !== role)
+        : [...prev.skillRoles, role],
+    }));
+  };
+
+  const SKILL_ROLE_COLORS: Record<string, string> = {
+    BACKEND:  'bg-blue-100 text-blue-800 border-blue-300',
+    FRONTEND: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    QUALITY:  'bg-amber-100 text-amber-800 border-amber-300',
+  };
+  const skillRoleChipStyle = (role: string, selected?: boolean) => {
+    const base = SKILL_ROLE_COLORS[role] ?? 'bg-indigo-100 text-indigo-800 border-indigo-300';
+    return selected === undefined
+      ? `${base} border`
+      : selected
+        ? `${base} border-2 font-semibold`
+        : 'bg-gray-100 text-gray-500 border border-gray-200';
   };
 
   const avatarColor = (role: string) =>
@@ -355,6 +391,32 @@ export default function UsersPage() {
                 )}
               </div>
 
+              {/* Ruoli Tecnici */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ruoli Tecnici <span className="text-gray-400 font-normal">(seleziona uno o più)</span>
+                </label>
+                {availableSkillRoles.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Nessun ruolo configurato. Vai in Impostazioni.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {availableSkillRoles.map((role) => {
+                      const selected = form.skillRoles.includes(role);
+                      return (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() => toggleSkillRole(role)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${skillRoleChipStyle(role, selected)}`}
+                        >
+                          {selected ? '✓ ' : ''}{role}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Disponibilità reperibilità */}
               <div className="md:col-span-2">
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -445,6 +507,7 @@ export default function UsersPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dipendente</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ruolo</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Skill</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anzianità</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stato</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Azioni</th>
@@ -500,6 +563,22 @@ export default function UsersPage() {
                                     </span>
                                   );
                                 })
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {(user.skill_roles ?? []).length === 0 ? (
+                                <span className="text-sm text-gray-400">—</span>
+                              ) : (
+                                (user.skill_roles ?? []).map((role) => (
+                                  <span
+                                    key={role}
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${skillRoleChipStyle(role)}`}
+                                  >
+                                    {role}
+                                  </span>
+                                ))
                               )}
                             </div>
                           </td>

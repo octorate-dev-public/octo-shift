@@ -36,6 +36,9 @@ export default function AdminSettingsPage() {
   const [onCallCount, setOnCallCount] = useState(1);
   const [timezone, setTimezone] = useState('Europe/Rome');
   const [workDays, setWorkDays] = useState<string[]>(DEFAULT_WORK_DAYS);
+  const [skillRolesInput, setSkillRolesInput] = useState('BACKEND,FRONTEND,QUALITY');
+  const [skillRolesFeedback, setSkillRolesFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+  const [newRoleInput, setNewRoleInput] = useState('');
 
   // KEROS
   const [kerosUsername, setKerosUsername] = useState('');
@@ -74,6 +77,9 @@ export default function AdminSettingsPage() {
       } else {
         setWorkDays(DEFAULT_WORK_DAYS);
       }
+      if (data.user_skill_roles) {
+        setSkillRolesInput(data.user_skill_roles);
+      }
       // KEROS: il server non restituisce mai i valori in chiaro.
       // Riceviamo solo il flag che indica se sono stati configurati.
       if (data.keros_username_set === 'true') setKerosPasswordSet(true); // badge "Configurato"
@@ -110,6 +116,39 @@ export default function AdminSettingsPage() {
 
   const handleSaveTimezone = () =>
     saveSetting('timezone', timezone, setTimezoneFeedback);
+
+  const handleSaveSkillRoles = () => {
+    const cleaned = skillRolesInput
+      .split(',')
+      .map((r) => r.trim().toUpperCase())
+      .filter(Boolean)
+      .join(',');
+    if (!cleaned) {
+      setSkillRolesFeedback({ status: 'error', message: 'Inserisci almeno un ruolo.' });
+      setTimeout(() => setSkillRolesFeedback(DEFAULT_FEEDBACK), 3000);
+      return;
+    }
+    setSkillRolesInput(cleaned);
+    saveSetting('user_skill_roles', cleaned, setSkillRolesFeedback);
+  };
+
+  const parsedSkillRoles = skillRolesInput
+    .split(',')
+    .map((r) => r.trim().toUpperCase())
+    .filter(Boolean);
+
+  const addSkillRole = () => {
+    const role = newRoleInput.trim().toUpperCase();
+    if (!role) return;
+    if (!parsedSkillRoles.includes(role)) {
+      setSkillRolesInput([...parsedSkillRoles, role].join(','));
+    }
+    setNewRoleInput('');
+  };
+
+  const removeSkillRole = (role: string) => {
+    setSkillRolesInput(parsedSkillRoles.filter((r) => r !== role).join(','));
+  };
 
   const handleSaveWorkDays = () => {
     if (workDays.length === 0) {
@@ -326,6 +365,68 @@ export default function AdminSettingsPage() {
               {timezoneFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
             </button>
           </div>
+          {/* Card: Ruoli Tecnici */}
+          <div className="bg-white rounded-lg shadow p-6 space-y-4 md:col-span-2 xl:col-span-1">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Ruoli Tecnici</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Ruoli assegnabili ai dipendenti (es. BACKEND, FRONTEND, QUALITY). Ogni dipendente può averne più di uno.
+              </p>
+            </div>
+
+            {/* Chip esistenti */}
+            <div className="flex flex-wrap gap-2 min-h-[36px]">
+              {parsedSkillRoles.length === 0 ? (
+                <span className="text-sm text-gray-400 italic">Nessun ruolo definito</span>
+              ) : (
+                parsedSkillRoles.map((role) => (
+                  <span
+                    key={role}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-full"
+                  >
+                    {role}
+                    <button
+                      type="button"
+                      onClick={() => removeSkillRole(role)}
+                      className="text-indigo-400 hover:text-indigo-700 leading-none ml-0.5"
+                      title={`Rimuovi ${role}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+
+            {/* Aggiungi nuovo ruolo */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newRoleInput}
+                onChange={(e) => setNewRoleInput(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSkillRole(); } }}
+                placeholder="Nuovo ruolo (es. DEVOPS)"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none uppercase placeholder:normal-case"
+              />
+              <button
+                type="button"
+                onClick={addSkillRole}
+                className="px-3 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-sm font-medium hover:bg-indigo-100 transition"
+              >
+                + Aggiungi
+              </button>
+            </div>
+
+            <FeedbackMessage feedback={skillRolesFeedback} />
+            <button
+              onClick={handleSaveSkillRoles}
+              disabled={skillRolesFeedback.status === 'loading'}
+              className="w-full bg-indigo-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+            >
+              {skillRolesFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva Ruoli'}
+            </button>
+          </div>
+
         </div>
 
         {/* ── KEROS HR ── */}

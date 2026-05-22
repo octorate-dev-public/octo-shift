@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import Layout from '@/components/Layout';
 import ImportLeavePanel from '@/components/ImportLeavePanel';
 import { api } from '@/lib/fetcher';
-import { Shift, User } from '@/types';
+import { Shift, User, Team } from '@/types';
 import {
   getInitials,
   getLeaveColor,
@@ -14,6 +14,7 @@ import {
   formatPermissionNote,
   groupVacationBlocks,
 } from '@/lib/utils';
+import type { AiLeaveSuggestion } from '@/app/api/ai-leave/route';
 
 type LeaveType = 'vacation' | 'permission';
 type FilterType = 'all' | 'vacation' | 'permission';
@@ -30,9 +31,17 @@ export default function AdminLeavePage() {
 
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ── AI Assistant ferie ────────────────────────────────────────────────────
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AiLeaveSuggestion[]>([]);
 
   // Aggiungi assenza manualmente
   const [showAddForm, setShowAddForm] = useState(false);
@@ -66,11 +75,13 @@ export default function AdminLeavePage() {
     try {
       setLoading(true);
       setError(null);
-      const [shiftsData, usersData] = await Promise.all([
+      const [shiftsData, usersData, teamsData] = await Promise.all([
         api.get<Shift[]>(`/api/shifts?year=${year}&month=${month}`),
         api.get<User[]>('/api/users'),
+        api.get<Team[]>('/api/teams'),
       ]);
       setUsers(usersData);
+      setTeams(teamsData);
       setAllShifts(
         shiftsData.filter((s) => s.leave_type === 'vacation' || s.leave_type === 'permission'),
       );
@@ -206,6 +217,130 @@ export default function AdminLeavePage() {
 
   const getUserById = (id: string) => users.find((u) => u.id === id);
 
+  // ── AI: carica anno intero e analizza ─────────────────────────────────────
+  const handleAiAnalyze = useCallback(async () => {
+    try {
+      setAiLoading(true);
+      setAiError(null);
+      setAiSuggestions([]);
+
+      // 1. Carica tutte le assenze dell'anno (non solo il mese corrente)
+      const [yearLeaves, settingsData] = await Promise.all([
+        api.get<Shift[]>(`/api/shifts?year=${year}&leaveOnly=true`),
+        api.get<Record<string, string>>('/api/settings'),
+      ]);
+
+      const vacationAllowance = settingsData.vacation_allowance_days
+        ? parseInt(settingsData.vacation_allowance_days, 10) || 26
+        : 26;
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // 2. Costruisci dati utenti arricchiti
+      const aiUsers = users.filter((u) => u.is_active).map((u) => {
+        const seniorityMs = new Date().getTime() - new Date(u.seniority_date).getTime();
+        const seniorityYears = Math.floor(seniorityMs / (1000 * 60 * 60 * 24 * 365));
+        return {
+          id: u.id,
+          name: u.full_name,
+          role: u.role,
+          skillRoles: u.skill_roles ?? [],
+          teamNames: (u.team_ids ?? []).map((tid) => teams.find((t) => t.id === tid)?.name ?? tid),
+          seniorityDate: u.seniority_date,
+          seniorityYears,
+          isActive: u.is_active,
+        };
+      });
+
+      // 3. Costruisci entries ferie
+      const aiLeaves = yearLeaves.map((s) => {
+        const u = users.find((u2) => u2.id === s.user_id);
+        return {
+          userId: s.user_id,
+          userName: u?.full_name ?? s.user_id,
+          date: s.shift_date,
+          type: (s.leave_type ?? 'vacation') as 'vacation' | 'permission' | 'sick',
+          note: s.leave_note ?? undefined,
+        };
+      });
+
+      // 4. Calcola statistiche per utente
+      const userStats = aiUsers.map((u) => {
+        const uLeaves = aiLeaves.filter((l) => l.userId === u.id);
+        const vacLeaves = uLeaves.filter((l) => l.type === 'vacation').sort((a, b) => a.date.localeCompare(b.date));
+        const permLeaves = uLeaves.filter((l) => l.type === 'permission');
+        const sickLeaves = uLeaves.filter((l) => l.type === 'sick');
+
+        // Blocchi consecutivi di ferie
+        let blocks = 0;
+        let longestBlock = 0;
+        let currentRun = 0;
+        let prevDate: Date | null = null;
+        for (const l of vacLeaves) {
+          const d = new Date(l.date);
+          if (prevDate) {
+            const diff = (d.getTime() - prevDate.getTime()) / 86400000;
+            if (diff <= 3) { // tolera fine settimana
+              currentRun++;
+            } else {
+              longestBlock = Math.max(longestBlock, currentRun);
+              currentRun = 1;
+              blocks++;
+            }
+          } else {
+            currentRun = 1;
+            blocks = 1;
+          }
+          prevDate = d;
+        }
+        if (currentRun > 0) longestBlock = Math.max(longestBlock, currentRun);
+
+        // Distribuzione mensile ferie
+        const monthDistribution = Array(12).fill(0);
+        for (const l of vacLeaves) {
+          const m = parseInt(l.date.split('-')[1], 10) - 1;
+          monthDistribution[m]++;
+        }
+
+        return {
+          userId: u.id,
+          userName: u.name,
+          skillRoles: u.skillRoles,
+          teamNames: u.teamNames,
+          seniorityYears: u.seniorityYears,
+          vacationDays: vacLeaves.length,
+          permissionDays: permLeaves.length,
+          sickDays: sickLeaves.length,
+          vacationBlocks: blocks,
+          longestBlock,
+          monthDistribution,
+          lastVacationDate: vacLeaves.length > 0 ? vacLeaves[vacLeaves.length - 1].date : null,
+          firstVacationDate: vacLeaves.length > 0 ? vacLeaves[0].date : null,
+        };
+      });
+
+      // 5. Chiama AI
+      const result = await api.post<{ suggestions: AiLeaveSuggestion[] }>('/api/ai-leave', {
+        year,
+        today: todayStr,
+        vacationAllowanceDays: vacationAllowance,
+        users: aiUsers,
+        leaves: aiLeaves,
+        userStats,
+        userPrompt: aiPrompt,
+      });
+
+      setAiSuggestions(result.suggestions ?? []);
+      if ((result.suggestions ?? []).length === 0) {
+        setAiError("L'AI non ha trovato anomalie o suggerimenti per questo anno.");
+      }
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : "Errore durante l'analisi AI");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [year, users, teams, aiPrompt]);
+
   const filteredShifts = allShifts
     .filter((s) => filter === 'all' || s.leave_type === filter)
     .sort((a, b) => a.shift_date.localeCompare(b.shift_date));
@@ -229,7 +364,13 @@ export default function AdminLeavePage() {
             <h1 className="text-3xl font-bold text-gray-900">Gestione Assenze</h1>
             <p className="text-gray-600 mt-2">Gestisci ferie e permessi dei dipendenti</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => { setAiOpen(true); setAiSuggestions([]); setAiError(null); }}
+              className="bg-violet-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-violet-700 transition flex items-center gap-1.5"
+            >
+              🤖 AI Analisi Ferie
+            </button>
             <button
               onClick={() => {
                 setShowImportPanel((v) => !v);
@@ -628,6 +769,152 @@ export default function AdminLeavePage() {
           )}
         </div>
       </div>
+
+      {/* ─── Pannello AI Analisi Ferie ────────────────────────────────────── */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={() => setAiOpen(false)} />
+          <div className="w-full max-w-lg bg-white shadow-2xl flex flex-col overflow-hidden">
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-purple-600">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  🤖 AI Analisi Ferie
+                </h2>
+                <p className="text-violet-200 text-xs mt-0.5">
+                  Anomalie, equità, copertura e previsioni per il {year}
+                </p>
+              </div>
+              <button onClick={() => setAiOpen(false)} className="text-white/70 hover:text-white text-xl leading-none transition">✕</button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Prompt opzionale */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  Istruzioni aggiuntive <span className="text-gray-400 font-normal">(opzionale)</span>
+                </label>
+                <textarea
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="Es. «Considera che il nostro contratto prevede 22gg di ferie» oppure «Evidenzia chi non ha ancora pianificato ferie estive»…"
+                  rows={3}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent placeholder:text-gray-300"
+                />
+              </div>
+
+              {/* Bottone analisi */}
+              <button
+                onClick={handleAiAnalyze}
+                disabled={aiLoading}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3 rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {aiLoading ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Analisi in corso… (può richiedere qualche secondo)
+                  </>
+                ) : (
+                  <>✨ Analizza {year}</>
+                )}
+              </button>
+
+              {/* Errore */}
+              {aiError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex gap-2 items-start">
+                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                  <span>{aiError}</span>
+                </div>
+              )}
+
+              {/* Suggerimenti */}
+              {aiSuggestions.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    {aiSuggestions.length} osservazion{aiSuggestions.length === 1 ? 'e' : 'i'}
+                  </p>
+                  {aiSuggestions.map((s) => {
+                    const severityStyle: Record<string, string> = {
+                      high:   'border-l-red-500 bg-red-50',
+                      medium: 'border-l-amber-400 bg-amber-50',
+                      low:    'border-l-blue-400 bg-blue-50',
+                      info:   'border-l-gray-300 bg-gray-50',
+                    };
+                    const severityBadge: Record<string, string> = {
+                      high:   'bg-red-100 text-red-700',
+                      medium: 'bg-amber-100 text-amber-700',
+                      low:    'bg-blue-100 text-blue-700',
+                      info:   'bg-gray-100 text-gray-500',
+                    };
+                    const categoryIcon: Record<string, string> = {
+                      overflow: '📈',
+                      equity:   '⚖️',
+                      coverage: '🛡️',
+                      pattern:  '🔍',
+                      anomaly:  '⚠️',
+                      info:     'ℹ️',
+                    };
+                    const severityLabel: Record<string, string> = {
+                      high: 'Priorità alta', medium: 'Media', low: 'Bassa', info: 'Info',
+                    };
+
+                    return (
+                      <div
+                        key={s.id}
+                        className={`rounded-xl border border-l-4 p-4 space-y-2 ${severityStyle[s.severity] ?? 'border-l-gray-300 bg-gray-50'}`}
+                      >
+                        <div className="flex items-start gap-2 flex-wrap">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${severityBadge[s.severity] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {severityLabel[s.severity] ?? s.severity}
+                          </span>
+                          <span className="text-xs bg-white/70 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                            {categoryIcon[s.category] ?? '•'} {s.category}
+                          </span>
+                        </div>
+                        <p className="text-sm font-semibold text-gray-800">{s.title}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed">{s.description}</p>
+                        {s.affectedUsers.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {s.affectedUsers.map((name) => (
+                              <span key={name} className="text-xs bg-white text-gray-700 border border-gray-200 rounded-full px-2 py-0.5 font-medium">
+                                👤 {name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Stato iniziale */}
+              {!aiLoading && aiSuggestions.length === 0 && !aiError && (
+                <div className="text-center py-10 text-gray-400">
+                  <div className="text-5xl mb-3">🤖</div>
+                  <p className="text-sm">
+                    Premi <strong className="text-violet-600">Analizza {year}</strong> per avviare l&apos;analisi AI delle ferie.
+                  </p>
+                  <p className="text-xs mt-2 text-gray-300">
+                    Vengono analizzati tutti i dipendenti con ruolo, team, seniority e distribuzione mensile per l&apos;intero anno.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50">
+              <p className="text-xs text-gray-400 text-center">
+                Analisi generata da Claude (Anthropic) · Solo advisory — nessuna modifica automatica
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </Layout>
   );
 }
