@@ -1,13 +1,25 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { Shift } from '@/types';
-import { formatDate, getLeaveColor, getLeaveLabel, parseDateString } from '@/lib/utils';
+import {
+  getLeaveColor,
+  getLeaveLabel,
+  parseDateString,
+  computePermissionHours,
+  formatPermissionNote,
+  groupVacationBlocks,
+} from '@/lib/utils';
 
 type LeaveType = 'vacation' | 'permission';
+
+interface DeleteConfirm {
+  shift: Shift;
+  block: Shift[];
+}
 
 export default function UserLeavePage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -18,10 +30,22 @@ export default function UserLeavePage() {
 
   // Add form
   const [showAddForm, setShowAddForm] = useState(false);
-  const [formDate, setFormDate] = useState('');
   const [formType, setFormType] = useState<LeaveType>('vacation');
+
+  // Ferie multigiorno
+  const [formStartDate, setFormStartDate] = useState('');
+  const [formEndDate, setFormEndDate] = useState('');
+
+  // Permesso con orario
+  const [formPermDate, setFormPermDate] = useState('');
+  const [formTimeStart, setFormTimeStart] = useState('09:00');
+  const [formTimeEnd, setFormTimeEnd] = useState('12:00');
+
   const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Eliminazione
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -35,9 +59,7 @@ export default function UserLeavePage() {
   }, []);
 
   useEffect(() => {
-    if (userId) {
-      loadData(userId);
-    }
+    if (userId) loadData(userId);
   }, [userId]);
 
   const loadData = async (uid: string) => {
@@ -45,54 +67,108 @@ export default function UserLeavePage() {
       setLoading(true);
       setError(null);
       const currentYear = new Date().getFullYear();
-      const start = `${currentYear}-01-01`;
-      const end = `${currentYear}-12-31`;
       const data = await api.get<Shift[]>(
-        `/api/shifts?userId=${uid}&start=${start}&end=${end}`,
+        `/api/shifts?userId=${uid}&start=${currentYear}-01-01&end=${currentYear}-12-31`,
       );
-      const leaveShifts = data.filter(
-        (s) => s.leave_type === 'vacation' || s.leave_type === 'permission',
-      );
-      leaveShifts.sort((a, b) => b.shift_date.localeCompare(a.shift_date));
+      const leaveShifts = data
+        .filter((s) => s.leave_type === 'vacation' || s.leave_type === 'permission')
+        .sort((a, b) => b.shift_date.localeCompare(a.shift_date));
       setShifts(leaveShifts);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Errore nel caricamento';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Errore nel caricamento');
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Calcolo ore permesso (live) ────────────────────────────────
+  const permissionHours = useMemo(
+    () => (formTimeStart && formTimeEnd ? computePermissionHours(formTimeStart, formTimeEnd) : 0),
+    [formTimeStart, formTimeEnd],
+  );
+
+  const permissionNote = useMemo(
+    () => (formTimeStart && formTimeEnd ? formatPermissionNote(formTimeStart, formTimeEnd) : ''),
+    [formTimeStart, formTimeEnd],
+  );
+
+  // ── Submit form ────────────────────────────────────────────────
   const handleAddShift = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !formDate) return;
+    if (!userId) return;
     try {
       setSubmitting(true);
       setAddError(null);
-      // Imposta SOLO il leave_type, preservando l'eventuale shift_type
-      // (Ufficio/Smart) già pianificato per quel giorno.
-      await api.patch('/api/shifts', {
-        userId,
-        shiftDate: formDate,
-        action: 'setLeave',
-        leaveType: formType,
-      });
+
+      if (formType === 'vacation') {
+        if (!formStartDate || !formEndDate) {
+          setAddError('Seleziona entrambe le date.');
+          return;
+        }
+        if (formEndDate < formStartDate) {
+          setAddError('La data fine non può precedere la data inizio.');
+          return;
+        }
+        await api.patch('/api/shifts', {
+          userId,
+          action: 'setLeaveRange',
+          startDate: formStartDate,
+          endDate: formEndDate,
+          leaveType: 'vacation',
+        });
+      } else {
+        if (!formPermDate) {
+          setAddError('Seleziona la data del permesso.');
+          return;
+        }
+        if (permissionHours <= 0) {
+          setAddError("L'orario inserito non è valido (ore ≤ 0).");
+          return;
+        }
+        await api.patch('/api/shifts', {
+          userId,
+          shiftDate: formPermDate,
+          action: 'setLeave',
+          leaveType: 'permission',
+          leaveNote: permissionNote,
+        });
+      }
+
       setShowAddForm(false);
-      setFormDate('');
-      setFormType('vacation');
+      resetForm();
       await loadData(userId);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Errore durante la richiesta';
-      setAddError(message);
+      setAddError(err instanceof Error ? err.message : 'Errore durante la richiesta');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (shift: Shift) => {
-    if (!confirm('Rimuovere questa richiesta di assenza? Il turno sottostante (Ufficio/Smart) sarà ripristinato.')) return;
+  const resetForm = () => {
+    setFormStartDate('');
+    setFormEndDate('');
+    setFormPermDate('');
+    setFormTimeStart('09:00');
+    setFormTimeEnd('12:00');
+    setAddError(null);
+  };
+
+  // ── Delete helpers ─────────────────────────────────────────────
+  const handleDeleteClick = (shift: Shift) => {
+    if (shift.leave_type === 'permission') {
+      // Permesso: conferma semplice diretta
+      setDeleteConfirm({ shift, block: [shift] });
+      return;
+    }
+    // Ferie: trova il blocco
+    const allBlocks = groupVacationBlocks(shifts);
+    const block = allBlocks.find((b) => b.some((s) => s.id === shift.id)) ?? [shift];
+    setDeleteConfirm({ shift, block });
+  };
+
+  const handleDeleteSingle = async (shift: Shift) => {
+    setDeleteConfirm(null);
     try {
-      // Rimuove SOLO il leave_type, lasciando intatto lo shift_type sottostante.
       await api.patch('/api/shifts', {
         userId: shift.user_id,
         shiftDate: shift.shift_date,
@@ -101,20 +177,35 @@ export default function UserLeavePage() {
       });
       if (userId) await loadData(userId);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Errore durante l'eliminazione";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Errore durante l'eliminazione");
     }
   };
 
-  const formatShiftDate = (dateStr: string) => {
-    const d = parseDateString(dateStr);
-    return d.toLocaleDateString('it-IT', {
+  const handleDeleteBlock = async (block: Shift[]) => {
+    setDeleteConfirm(null);
+    if (block.length === 0 || !userId) return;
+    const sorted = [...block].sort((a, b) => a.shift_date.localeCompare(b.shift_date));
+    try {
+      await api.patch('/api/shifts', {
+        userId: sorted[0].user_id,
+        action: 'clearLeaveRange',
+        startDate: sorted[0].shift_date,
+        endDate: sorted[sorted.length - 1].shift_date,
+      });
+      await loadData(userId);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Errore durante l'eliminazione del blocco");
+    }
+  };
+
+  // ── Formatting ─────────────────────────────────────────────────
+  const formatShiftDate = (dateStr: string) =>
+    parseDateString(dateStr).toLocaleDateString('it-IT', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
     });
-  };
 
   const currentYear = new Date().getFullYear();
   const vacationCount = shifts.filter((s) => s.leave_type === 'vacation').length;
@@ -133,17 +224,17 @@ export default function UserLeavePage() {
   return (
     <Layout userRole="user" userName={userName}>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Le Mie Assenze</h1>
-            <p className="text-gray-600 mt-2">
-              Ferie e permessi per l&apos;anno {currentYear}
-            </p>
+            <p className="text-gray-600 mt-2">Ferie e permessi per l&apos;anno {currentYear}</p>
           </div>
           <button
             onClick={() => {
               setShowAddForm((v) => !v);
-              setAddError(null);
+              if (showAddForm) resetForm();
+              setDeleteConfirm(null);
             }}
             className="bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition"
           >
@@ -157,7 +248,7 @@ export default function UserLeavePage() {
           </div>
         )}
 
-        {/* Summary cards */}
+        {/* Summary */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white rounded-lg shadow p-5">
             <p className="text-sm text-gray-500">Giorni di ferie</p>
@@ -173,37 +264,141 @@ export default function UserLeavePage() {
         {showAddForm && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Nuova Richiesta</h2>
-            <form onSubmit={handleAddShift} className="flex flex-wrap gap-4 items-end">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
-                <input
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  required
-                  min={`${currentYear}-01-01`}
-                  max={`${currentYear}-12-31`}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                />
-              </div>
+            <form onSubmit={handleAddShift} className="space-y-4">
+              {/* Tipo */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-                <select
-                  value={formType}
-                  onChange={(e) => setFormType(e.target.value as LeaveType)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
-                >
-                  <option value="vacation">Ferie</option>
-                  <option value="permission">Permesso</option>
-                </select>
+                <div className="flex gap-3">
+                  {(['vacation', 'permission'] as LeaveType[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFormType(t)}
+                      className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                        formType === t
+                          ? t === 'vacation'
+                            ? 'bg-yellow-100 border-yellow-400 text-yellow-800'
+                            : 'bg-purple-100 border-purple-400 text-purple-800'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {t === 'vacation' ? '✈️ Ferie' : '📋 Permesso'}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-              >
-                {submitting ? 'Invio...' : 'Invia Richiesta'}
-              </button>
+
+              {/* Campi per FERIE multigiorno */}
+              {formType === 'vacation' && (
+                <div className="flex flex-wrap gap-4 items-end">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Dal giorno
+                    </label>
+                    <input
+                      type="date"
+                      value={formStartDate}
+                      onChange={(e) => {
+                        setFormStartDate(e.target.value);
+                        if (!formEndDate || e.target.value > formEndDate)
+                          setFormEndDate(e.target.value);
+                      }}
+                      required
+                      min={`${currentYear}-01-01`}
+                      max={`${currentYear}-12-31`}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Al giorno
+                    </label>
+                    <input
+                      type="date"
+                      value={formEndDate}
+                      onChange={(e) => setFormEndDate(e.target.value)}
+                      required
+                      min={formStartDate || `${currentYear}-01-01`}
+                      max={`${currentYear}-12-31`}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
+                    />
+                  </div>
+                  {formStartDate && formEndDate && formEndDate >= formStartDate && (
+                    <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                      ✈️ Verrà inserita una ferie per ogni giorno lavorativo (lun–ven) nel
+                      periodo selezionato.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Campi per PERMESSO con orario */}
+              {formType === 'permission' && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                      <input
+                        type="date"
+                        value={formPermDate}
+                        onChange={(e) => setFormPermDate(e.target.value)}
+                        required
+                        min={`${currentYear}-01-01`}
+                        max={`${currentYear}-12-31`}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dalle ore
+                      </label>
+                      <input
+                        type="time"
+                        value={formTimeStart}
+                        onChange={(e) => setFormTimeStart(e.target.value)}
+                        required
+                        step={900}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Alle ore
+                      </label>
+                      <input
+                        type="time"
+                        value={formTimeEnd}
+                        onChange={(e) => setFormTimeEnd(e.target.value)}
+                        required
+                        step={900}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                  </div>
+                  {/* Preview calcolo ore */}
+                  {permissionHours > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-purple-700 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+                      <span className="font-medium">📋 {permissionNote}</span>
+                      <span className="text-purple-400 text-xs">(pausa 13–14 esclusa)</span>
+                    </div>
+                  )}
+                  {permissionHours <= 0 && formTimeStart && formTimeEnd && (
+                    <p className="text-sm text-red-600">
+                      L&apos;orario non è valido: l&apos;ora fine deve essere dopo l&apos;ora inizio.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-blue-600 text-white font-medium py-2 px-5 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {submitting ? 'Invio...' : 'Invia Richiesta'}
+                </button>
+              </div>
             </form>
             {addError && (
               <p className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -213,12 +408,60 @@ export default function UserLeavePage() {
           </div>
         )}
 
+        {/* Conferma eliminazione */}
+        {deleteConfirm && (
+          <div className="bg-orange-50 border border-orange-300 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="text-sm text-orange-900">
+              {deleteConfirm.block.length > 1 ? (
+                <>
+                  Questo giorno fa parte di un blocco ferie di{' '}
+                  <strong>{deleteConfirm.block.length} giorni</strong> (
+                  {parseDateString(
+                    [...deleteConfirm.block].sort((a, b) =>
+                      a.shift_date.localeCompare(b.shift_date),
+                    )[0].shift_date,
+                  ).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}
+                  {' – '}
+                  {parseDateString(
+                    [...deleteConfirm.block].sort((a, b) =>
+                      b.shift_date.localeCompare(a.shift_date),
+                    )[0].shift_date,
+                  ).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}
+                  ).
+                </>
+              ) : (
+                <>Confermi l&apos;eliminazione di questa assenza?</>
+              )}
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              {deleteConfirm.block.length > 1 && (
+                <button
+                  onClick={() => handleDeleteBlock(deleteConfirm.block)}
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white font-medium px-3 py-1.5 rounded-lg transition"
+                >
+                  Elimina blocco ({deleteConfirm.block.length} gg)
+                </button>
+              )}
+              <button
+                onClick={() => handleDeleteSingle(deleteConfirm.shift)}
+                className="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-medium px-3 py-1.5 rounded-lg transition"
+              >
+                {deleteConfirm.block.length > 1 ? 'Solo questo giorno' : 'Elimina'}
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3 py-1.5 rounded-lg transition"
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* List */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Storico ({shifts.length})
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-900">Storico ({shifts.length})</h2>
           </div>
 
           {shifts.length === 0 ? (
@@ -239,6 +482,9 @@ export default function UserLeavePage() {
                     Tipo
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Dettaglio
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Stato
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -248,18 +494,34 @@ export default function UserLeavePage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {shifts.map((shift) => (
-                  <tr key={shift.id} className="hover:bg-gray-50">
+                  <tr
+                    key={shift.id}
+                    className={`hover:bg-gray-50 ${
+                      deleteConfirm?.shift.id === shift.id ? 'bg-orange-50' : ''
+                    }`}
+                  >
                     <td className="px-6 py-4 text-sm text-gray-700">
                       {formatShiftDate(shift.shift_date)}
                     </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          shift.leave_type ? getLeaveColor(shift.leave_type) : 'bg-gray-100 text-gray-700'
+                          shift.leave_type
+                            ? getLeaveColor(shift.leave_type)
+                            : 'bg-gray-100 text-gray-700'
                         }`}
                       >
                         {shift.leave_type ? getLeaveLabel(shift.leave_type) : '—'}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {shift.leave_note ? (
+                        <span className="text-purple-700 text-xs font-medium">
+                          {shift.leave_note}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       {shift.locked ? (
@@ -274,7 +536,7 @@ export default function UserLeavePage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
-                        onClick={() => handleDelete(shift)}
+                        onClick={() => handleDeleteClick(shift)}
                         disabled={shift.locked}
                         className="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                       >

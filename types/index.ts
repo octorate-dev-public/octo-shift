@@ -36,6 +36,8 @@ export interface Shift {
   shift_date: string; // YYYY-MM-DD
   shift_type: ShiftType;
   leave_type: LeaveType | null; // overlay: sick/vacation/permission coexists with shift_type
+  /** Nota opzionale sull'assenza — usata per l'orario dei permessi (es. "dalle 09:00 alle 12:00 (3h)"). */
+  leave_note: string | null;
   locked: boolean;
   locked_by: string | null;
   created_at: string;

@@ -76,11 +76,24 @@ export const PATCH = withHandler('api/shifts', 'PATCH', async (req) => {
 
   if (action === 'setLeave') {
     // leaveType can be null to clear the leave, or 'sick' | 'vacation' | 'permission'
-    const shift = await shiftsAPI.setLeaveType(userId, shiftDate, leaveType ?? null);
+    // leaveNote (optional) stores orario for permissions (e.g. "dalle 09:00 alle 12:00 (3h)")
+    const shift = await shiftsAPI.setLeaveType(userId, shiftDate, leaveType ?? null, body.leaveNote ?? null);
     return jsonOk(shift);
   }
 
-  return jsonOk({ error: 'Azione non riconosciuta: usa lock, unlock o setLeave' }, 400);
+  if (action === 'setLeaveRange') {
+    // Insert vacation (or other leave) for all working days (Mon–Fri) in a date range.
+    const shifts = await shiftsAPI.setLeaveTypeRange(userId, body.startDate, body.endDate, leaveType);
+    return jsonOk(shifts);
+  }
+
+  if (action === 'clearLeaveRange') {
+    // Remove leave_type from all shifts in a date range (bulk vacation delete).
+    await shiftsAPI.clearLeaveTypeRange(userId, body.startDate, body.endDate);
+    return jsonOk({ ok: true });
+  }
+
+  return jsonOk({ error: 'Azione non riconosciuta: usa lock, unlock, setLeave, setLeaveRange o clearLeaveRange' }, 400);
 });
 
 /**

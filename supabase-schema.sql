@@ -48,6 +48,7 @@ CREATE TABLE shifts (
   shift_date DATE NOT NULL,
   shift_type VARCHAR(20) NOT NULL CHECK (shift_type IN ('office', 'smartwork')),
   leave_type VARCHAR(20) CHECK (leave_type IS NULL OR leave_type IN ('sick', 'vacation', 'permission')),
+  leave_note TEXT, -- nota opzionale sull'assenza (es. orario permesso "dalle 09:00 alle 12:00 (3h)")
   locked BOOLEAN DEFAULT false, -- cannot be changed if true
   locked_by UUID, -- admin who locked it
   created_at TIMESTAMP DEFAULT NOW(),
@@ -148,3 +149,9 @@ INSERT INTO settings (key, value) VALUES
   ('on_call_count', '1'),
   ('timezone', 'Europe/Rome'),
   ('preference_deadline_day', '20');
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- MIGRATION: eseguire sulla Supabase SQL Editor se il DB è già stato creato.
+-- Aggiunge la colonna leave_note alla tabella shifts (permessi con orario).
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ALTER TABLE shifts ADD COLUMN IF NOT EXISTS leave_note TEXT;

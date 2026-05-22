@@ -90,7 +90,7 @@ export const shiftsAPI = {
   },
 
   /**
-   * Imposta il leave_type per un giorno specifico.
+   * Imposta il leave_type (e opzionalmente leave_note) per un giorno specifico.
    *
    * NON usa upsert/ON CONFLICT perché il constraint UNIQUE(user_id, shift_date)
    * è stato reso DEFERRABLE per supportare lo swap atomico dei turni, e
@@ -98,7 +98,12 @@ export const shiftsAPI = {
    *
    * Strategia: check esistenza → INSERT se assente, UPDATE se presente.
    */
-  async setLeaveType(userId: string, shiftDate: string, leaveType: LeaveType | null): Promise<Shift> {
+  async setLeaveType(
+    userId: string,
+    shiftDate: string,
+    leaveType: LeaveType | null,
+    note?: string | null,
+  ): Promise<Shift> {
     return log.withTiming('setLeaveType', { userId, shiftDate, leaveType }, async () => {
       // 1. Controlla se lo shift esiste già
       const { data: existing, error: fetchErr } = await supabase
@@ -113,12 +118,11 @@ export const shiftsAPI = {
       // 2a. Rimozione assenza su riga esistente
       if (leaveType === null) {
         if (!existing) {
-          // Nessuna riga → niente da pulire
-          return { id: '', user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: null, locked: false, locked_by: null, created_at: '', updated_at: '' } as unknown as Shift;
+          return { id: '', user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: null, leave_note: null, locked: false, locked_by: null, created_at: '', updated_at: '' } as unknown as Shift;
         }
         const { data, error } = await supabase
           .from('shifts')
-          .update({ leave_type: null })
+          .update({ leave_type: null, leave_note: null })
           .eq('user_id', userId)
           .eq('shift_date', shiftDate)
           .select()
@@ -129,9 +133,11 @@ export const shiftsAPI = {
 
       // 2b. Aggiornamento riga esistente: preserva shift_type già pianificato
       if (existing) {
+        const row: Record<string, unknown> = { leave_type: leaveType };
+        if (note !== undefined) row.leave_note = note ?? null;
         const { data, error } = await supabase
           .from('shifts')
-          .update({ leave_type: leaveType })
+          .update(row)
           .eq('user_id', userId)
           .eq('shift_date', shiftDate)
           .select()
@@ -141,13 +147,74 @@ export const shiftsAPI = {
       }
 
       // 2c. Nessuna riga: crea un nuovo shift con smartwork come tipo default
+      const insertRow: Record<string, unknown> = {
+        user_id: userId,
+        shift_date: shiftDate,
+        shift_type: 'smartwork',
+        leave_type: leaveType,
+      };
+      if (note !== undefined) insertRow.leave_note = note ?? null;
       const { data, error } = await supabase
         .from('shifts')
-        .insert({ user_id: userId, shift_date: shiftDate, shift_type: 'smartwork', leave_type: leaveType })
+        .insert(insertRow)
         .select()
         .single();
       if (error) throw toAppError(error, 'Impossibile creare il turno con assenza');
       return data;
+    });
+  },
+
+  /**
+   * Imposta leave_type per tutti i giorni lavorativi (lun-ven) in un range di date.
+   * Usato per inserire ferie multigiorno.
+   */
+  async setLeaveTypeRange(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    leaveType: LeaveType,
+  ): Promise<Shift[]> {
+    return log.withTiming('setLeaveTypeRange', { userId, startDate, endDate, leaveType }, async () => {
+      const dates: string[] = [];
+      const [sy, sm, sd] = startDate.split('-').map(Number);
+      const [ey, em, ed] = endDate.split('-').map(Number);
+      const cur = new Date(sy, sm - 1, sd);
+      const end = new Date(ey, em - 1, ed);
+      while (cur <= end) {
+        const dow = cur.getDay();
+        if (dow !== 0 && dow !== 6) {
+          // lun-ven
+          const y = cur.getFullYear();
+          const mo = String(cur.getMonth() + 1).padStart(2, '0');
+          const d = String(cur.getDate()).padStart(2, '0');
+          dates.push(`${y}-${mo}-${d}`);
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+      const results = await Promise.all(
+        dates.map((date) => this.setLeaveType(userId, date, leaveType)),
+      );
+      log.info('setLeaveTypeRange', `Impostati ${results.length} giorni di ${leaveType}`, { userId });
+      return results;
+    });
+  },
+
+  /**
+   * Rimuove leave_type (e leave_note) da tutti i turni nel range indicato per l'utente.
+   * Usato per eliminare in blocco un range di ferie.
+   */
+  async clearLeaveTypeRange(userId: string, startDate: string, endDate: string): Promise<void> {
+    return log.withTiming('clearLeaveTypeRange', { userId, startDate, endDate }, async () => {
+      const { error } = await supabase
+        .from('shifts')
+        .update({ leave_type: null, leave_note: null })
+        .eq('user_id', userId)
+        .gte('shift_date', startDate)
+        .lte('shift_date', endDate)
+        .not('leave_type', 'is', null);
+
+      if (error) throw toAppError(error, 'Impossibile rimuovere le assenze nel range');
+      log.info('clearLeaveTypeRange', `Rimosso leave_type nel range ${startDate}–${endDate}`, { userId });
     });
   },
 

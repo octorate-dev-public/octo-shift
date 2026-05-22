@@ -609,9 +609,15 @@ export default function Calendar({
                                 }
                                 title={
                                   leave
-                                    ? underlyingType
-                                      ? `${LEAVE_LABELS[leave]} (previsto: ${SHIFT_LABELS[underlyingType]})`
-                                      : LEAVE_LABELS[leave]
+                                    ? (() => {
+                                        const note = shift?.leave_note;
+                                        const base = note
+                                          ? `${LEAVE_LABELS[leave]}: ${note}`
+                                          : LEAVE_LABELS[leave];
+                                        return underlyingType
+                                          ? `${base} (previsto: ${SHIFT_LABELS[underlyingType]})`
+                                          : base;
+                                      })()
                                     : undefined
                                 }
                               >
@@ -776,18 +782,33 @@ export default function Calendar({
                     return (
                       <div
                         key={shift.id}
-                        className={`text-xs px-1 py-0.5 rounded flex items-center gap-1 ${getShiftColor(shift.shift_type)}`}
+                        className={`text-xs px-1 py-0.5 rounded flex flex-col gap-0 ${getShiftColor(shift.shift_type)}`}
                         style={teamColor && shift.shift_type === 'office' ? { borderLeft: `3px solid ${teamColor}` } : undefined}
+                        title={
+                          shift.leave_type && shift.leave_note
+                            ? `${getLeaveLabel(shift.leave_type)}: ${shift.leave_note}`
+                            : shift.leave_type
+                            ? getLeaveLabel(shift.leave_type)
+                            : undefined
+                        }
                       >
-                        <span className="font-bold truncate">
-                          {shift.user ? getInitials(shift.user.full_name) : '?'}
-                        </span>
-                        {shift.leave_type && (
-                          <span title={getLeaveLabel(shift.leave_type)} className="flex-shrink-0">
-                            {getLeaveIcon(shift.leave_type)}
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold truncate">
+                            {shift.user ? getInitials(shift.user.full_name) : '?'}
+                          </span>
+                          {shift.leave_type && (
+                            <span className="flex-shrink-0">
+                              {getLeaveIcon(shift.leave_type)}
+                            </span>
+                          )}
+                          {shift.locked && <span title="Bloccato">🔒</span>}
+                        </div>
+                        {shift.leave_type === 'permission' && shift.leave_note && (
+                          <span className="text-[8px] leading-tight opacity-80 truncate block">
+                            {/* Mostra solo la durata, es. "3h" o "2h 30min" */}
+                            {shift.leave_note.match(/\(([^)]+)\)/)?.[1] ?? ''}
                           </span>
                         )}
-                        {shift.locked && <span title="Bloccato">🔒</span>}
                       </div>
                     );
                   })}

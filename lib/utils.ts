@@ -143,3 +143,73 @@ export const getLeaveIcon = (leaveType: string): string => {
   };
   return icons[leaveType] || '?';
 };
+
+// Permission hours ─────────────────────────────────────────────
+/**
+ * Calcola le ore nette di permesso escludendo la pausa pranzo 13:00–14:00.
+ * @param startTime "HH:MM"
+ * @param endTime   "HH:MM"
+ * @returns ore (numero decimale, es. 3.5)
+ */
+export function computePermissionHours(startTime: string, endTime: string): number {
+  const toMin = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + (m || 0);
+  };
+  const start = toMin(startTime);
+  const end = toMin(endTime);
+  if (end <= start) return 0;
+  const lunchStart = 13 * 60; // 780 min
+  const lunchEnd = 14 * 60;   // 840 min
+  const overlap = Math.max(0, Math.min(end, lunchEnd) - Math.max(start, lunchStart));
+  const netMinutes = end - start - overlap;
+  return Math.round(netMinutes) / 60;
+}
+
+/**
+ * Formatta la nota del permesso: "dalle 09:00 alle 12:00 (3h)" o "... (2h 30min)".
+ */
+export function formatPermissionNote(startTime: string, endTime: string): string {
+  const hours = computePermissionHours(startTime, endTime);
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const durationStr = m > 0 ? `${h}h ${m}min` : `${h}h`;
+  return `dalle ${startTime} alle ${endTime} (${durationStr})`;
+}
+
+/**
+ * Raggruppa i turni ferie di un utente in blocchi di giorni consecutivi.
+ * Due date sono nello stesso blocco se la differenza è ≤ 3 giorni
+ * (per coprire il weekend Ven-Lun).
+ */
+export function groupVacationBlocks<T extends { shift_date: string; leave_type: string | null }>(
+  shifts: T[],
+): T[][] {
+  const vacations = [...shifts]
+    .filter((s) => s.leave_type === 'vacation')
+    .sort((a, b) => a.shift_date.localeCompare(b.shift_date));
+
+  if (vacations.length === 0) return [];
+
+  const blocks: T[][] = [];
+  let current: T[] = [vacations[0]];
+
+  for (let i = 1; i < vacations.length; i++) {
+    const last = current[current.length - 1];
+    const [ly, lm, ld] = last.shift_date.split('-').map(Number);
+    const [ty, tm, td] = vacations[i].shift_date.split('-').map(Number);
+    const lastMs = new Date(ly, lm - 1, ld).getTime();
+    const thisMs = new Date(ty, tm - 1, td).getTime();
+    const diffDays = Math.round((thisMs - lastMs) / 86_400_000);
+
+    if (diffDays <= 3) {
+      current.push(vacations[i]);
+    } else {
+      blocks.push(current);
+      current = [vacations[i]];
+    }
+  }
+  blocks.push(current);
+  return blocks;
+}
