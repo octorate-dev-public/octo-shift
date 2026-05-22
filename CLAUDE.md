@@ -1,5 +1,17 @@
 # CLAUDE.md — octo-shift (SmartWork Scheduler)
 
+## Punto d'ingresso per Claude
+
+**Prima di qualsiasi modifica leggi [`.claude/README.md`](./.claude/README.md)** —
+contiene un indice di istruzioni frazionate per area (architettura, pagine,
+algoritmi, gotchas, ecc.). Questo file (`CLAUDE.md`) resta il riferimento per
+tooling/env/comandi; il resto è in `.claude/`.
+
+**Regola di manutenzione:** quando una tua modifica al codice rende obsoleta
+una qualsiasi affermazione in `.claude/*` o in questo file, aggiorna il file
+corrispondente nella **stessa modifica**. La mappa "tipo di modifica → file da
+aggiornare" è in [`.claude/self-update.md`](./.claude/self-update.md).
+
 ## Panoramica del progetto
 
 Applicazione web full-stack per la gestione dei turni di smartwork/ufficio.

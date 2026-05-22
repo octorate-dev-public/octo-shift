@@ -6,6 +6,7 @@ import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { OnCallDailyAssignment, User } from '@/types';
 import { formatDate, parseDateString } from '@/lib/utils';
+import type { AiSuggestion, AiSuggestionAction } from '@/app/api/ai-oncall/route';
 
 // ─── Costanti ────────────────────────────────────────────────────────────────
 const GIORNI_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -117,6 +118,15 @@ export default function AdminOnCallMatricePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // ── AI Assistant ──────────────────────────────────────────────────────────
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<AiSuggestion[]>([]);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
 
   const [expandedMonths, setExpandedMonths] = useState<Set<number>>(() => new Set([today.getMonth()]));
   const [swap, setSwap] = useState<SwapState>({ mode: 'idle', sourceDate: null, sourceUserId: null });
@@ -383,6 +393,99 @@ export default function AdminOnCallMatricePage() {
   const cancelSwap = () => setSwap({ mode: 'idle', sourceDate: null, sourceUserId: null });
   const isSwapActive = swap.mode !== 'idle';
 
+  // ─── AI Assistant ──────────────────────────────────────────────────────────
+
+  /** Costruisce il payload da inviare all'API AI. */
+  const buildAiPayload = useCallback(() => {
+    const todayStr2 = formatDate(today);
+
+    // Statistiche per utente
+    const userStats = users
+      .filter((u) => u.on_call_available)
+      .map((u) => {
+        const allDays = assignments.filter((a) => a.user_id === u.id);
+        const futureDays = allDays.filter((a) => a.assignment_date >= todayStr2);
+        const pastDays = allDays.filter((a) => a.assignment_date < todayStr2);
+        return {
+          id: u.id,
+          name: u.full_name,
+          totalDays: allDays.length,
+          futureDays: futureDays.length,
+          pastDays: pastDays.length,
+        };
+      });
+
+    // Lista giorni completa con metadati
+    const MESI_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+    const days = dayRows
+      .filter((r) => r.userId !== null)
+      .map((r) => {
+        const u = users.find((u2) => u2.id === r.userId);
+        const d = r.dateObj;
+        return {
+          date: r.date,
+          dayLabel: `${r.dayLabel} ${MESI_SHORT[r.monthIdx]}`,
+          userId: r.userId!,
+          userName: u?.full_name ?? r.userId!,
+          hasVacation: r.hasVacation,
+          isPast: r.date < todayStr2,
+        };
+      });
+
+    return { year, today: todayStr2, users: userStats, days, userPrompt: aiPrompt };
+  }, [year, today, users, assignments, dayRows, aiPrompt]);
+
+  const handleAiAnalyze = async () => {
+    if (assignments.length === 0) {
+      setAiError('Nessuna assegnazione da analizzare. Genera prima la rotazione annuale.');
+      return;
+    }
+    try {
+      setAiLoading(true);
+      setAiError(null);
+      setSuggestions([]);
+      setAppliedIds(new Set());
+      const payload = buildAiPayload();
+      const result = await api.post<{ suggestions: AiSuggestion[] }>('/api/ai-oncall', payload);
+      setSuggestions(result.suggestions ?? []);
+      if (result.suggestions.length === 0) {
+        setAiError('L\'AI non ha trovato suggerimenti per questa programmazione.');
+      }
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'Errore durante l\'analisi AI');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplySuggestion = async (suggestion: AiSuggestion) => {
+    if (!suggestion.action || applyingId) return;
+    const a = suggestion.action as AiSuggestionAction;
+    try {
+      setApplyingId(suggestion.id);
+      await api.patch('/api/on-call', {
+        swap: true,
+        userId1: a.userId1,
+        dates1: a.dates1,
+        userId2: a.userId2,
+        dates2: a.dates2,
+      });
+      // Aggiorna lo stato locale
+      setAssignments((prev) => {
+        const map = new Map(prev.map((x) => [x.assignment_date, { ...x }]));
+        for (const d of a.dates1) { const e = map.get(d); if (e) e.user_id = a.userId2; }
+        for (const d of a.dates2) { const e = map.get(d); if (e) e.user_id = a.userId1; }
+        return Array.from(map.values());
+      });
+      setAppliedIds((prev) => new Set([...prev, suggestion.id]));
+      showSuccess(`Suggerimento applicato: ${suggestion.title}`);
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'Errore nell\'applicazione del suggerimento');
+    } finally {
+      setApplyingId(null);
+    }
+  };
+
   const toggleMonth = (m: number) =>
     setExpandedMonths((prev) => {
       const next = new Set(prev);
@@ -433,17 +536,26 @@ export default function AdminOnCallMatricePage() {
             </button>
           </div>
 
-          <button
-            onClick={handleGenerateYear}
-            disabled={generating || saving}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
-          >
-            {generating ? (
-              <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Generazione…</>
-            ) : (
-              <>⚡ Genera {year}</>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setAiOpen(true); setSuggestions([]); setAiError(null); }}
+              disabled={generating || saving}
+              className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-5 py-2.5 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
+            >
+              🤖 AI Assistant
+            </button>
+            <button
+              onClick={handleGenerateYear}
+              disabled={generating || saving}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
+            >
+              {generating ? (
+                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Generazione…</>
+              ) : (
+                <>⚡ Genera {year}</>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Alert errori / successo */}
@@ -793,6 +905,197 @@ export default function AdminOnCallMatricePage() {
           </div>
         )}
       </div>
+
+      {/* ─── Pannello AI Assistant ─────────────────────────────────────────── */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Overlay */}
+          <div
+            className="flex-1 bg-black/30 backdrop-blur-sm"
+            onClick={() => setAiOpen(false)}
+          />
+          {/* Pannello laterale */}
+          <div className="w-full max-w-lg bg-white shadow-2xl flex flex-col overflow-hidden">
+            {/* Header pannello */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-indigo-600">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  🤖 AI Assistant
+                </h2>
+                <p className="text-violet-200 text-xs mt-0.5">
+                  Analisi intelligente della reperibilità {year}
+                </p>
+              </div>
+              <button
+                onClick={() => setAiOpen(false)}
+                className="text-white/70 hover:text-white text-xl transition leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Corpo scrollabile */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Prompt opzionale */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                  Istruzioni aggiuntive <span className="text-gray-400 font-normal">(opzionale)</span>
+                </label>
+                <textarea
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="Es. «Evita di assegnare giornate a Mario nei weekend di agosto» oppure «Bilancia meglio i weekend festivi»…"
+                  rows={3}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent placeholder:text-gray-300"
+                />
+              </div>
+
+              {/* Pulsante analisi */}
+              <button
+                onClick={handleAiAnalyze}
+                disabled={aiLoading || assignments.length === 0}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3 rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {aiLoading ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Analisi in corso… (può richiedere qualche secondo)
+                  </>
+                ) : (
+                  <>✨ Analizza e suggerisci</>
+                )}
+              </button>
+
+              {/* Errore AI */}
+              {aiError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex gap-2 items-start">
+                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                  <span>{aiError}</span>
+                </div>
+              )}
+
+              {/* Suggerimenti */}
+              {suggestions.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    {suggestions.length} suggeriment{suggestions.length === 1 ? 'o' : 'i'} trovati
+                  </p>
+                  {suggestions.map((s) => {
+                    const isApplied = appliedIds.has(s.id);
+                    const isApplying = applyingId === s.id;
+                    const severityStyle: Record<string, string> = {
+                      high:   'border-l-red-500 bg-red-50',
+                      medium: 'border-l-amber-400 bg-amber-50',
+                      low:    'border-l-blue-400 bg-blue-50',
+                      info:   'border-l-gray-300 bg-gray-50',
+                    };
+                    const severityBadge: Record<string, string> = {
+                      high:   'bg-red-100 text-red-700',
+                      medium: 'bg-amber-100 text-amber-700',
+                      low:    'bg-blue-100 text-blue-700',
+                      info:   'bg-gray-100 text-gray-500',
+                    };
+                    const severityLabel: Record<string, string> = {
+                      high: 'Alta', medium: 'Media', low: 'Bassa', info: 'Info',
+                    };
+
+                    return (
+                      <div
+                        key={s.id}
+                        className={`rounded-xl border border-l-4 p-4 space-y-2 transition ${severityStyle[s.severity] ?? 'border-l-gray-300 bg-gray-50'} ${isApplied ? 'opacity-60' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${severityBadge[s.severity] ?? 'bg-gray-100 text-gray-500'}`}>
+                                {severityLabel[s.severity] ?? s.severity}
+                              </span>
+                              {s.type === 'swap' && (
+                                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                                  🔄 Scambio
+                                </span>
+                              )}
+                              {isApplied && (
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                                  ✓ Applicato
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-semibold text-gray-800">{s.title}</p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600 leading-relaxed">{s.description}</p>
+
+                        {/* Dettaglio scambio */}
+                        {s.action && (
+                          <div className="bg-white/70 rounded-lg p-2.5 text-xs text-gray-600 space-y-1 border border-white">
+                            <div className="flex items-start gap-1.5">
+                              <span className="font-semibold text-gray-700 flex-shrink-0">
+                                {s.action.userName1}:
+                              </span>
+                              <span className="font-mono text-gray-500">
+                                {s.action.dates1.slice(0, 4).join(', ')}{s.action.dates1.length > 4 ? ` +${s.action.dates1.length - 4}` : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 text-gray-400 pl-1">↕ scambia con</div>
+                            <div className="flex items-start gap-1.5">
+                              <span className="font-semibold text-gray-700 flex-shrink-0">
+                                {s.action.userName2}:
+                              </span>
+                              <span className="font-mono text-gray-500">
+                                {s.action.dates2.slice(0, 4).join(', ')}{s.action.dates2.length > 4 ? ` +${s.action.dates2.length - 4}` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pulsante applica */}
+                        {s.type === 'swap' && s.action && !isApplied && (
+                          <button
+                            onClick={() => handleApplySuggestion(s)}
+                            disabled={isApplying || !!applyingId}
+                            className="mt-1 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                          >
+                            {isApplying ? (
+                              <>
+                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Applicazione…
+                              </>
+                            ) : (
+                              '✓ Applica questo scambio'
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Stato vuoto iniziale */}
+              {!aiLoading && suggestions.length === 0 && !aiError && (
+                <div className="text-center py-10 text-gray-400">
+                  <div className="text-5xl mb-3">🤖</div>
+                  <p className="text-sm">
+                    Premi <strong className="text-violet-600">Analizza e suggerisci</strong> per avviare l&apos;analisi AI della programmazione {year}.
+                  </p>
+                  <p className="text-xs mt-2 text-gray-300">
+                    L&apos;AI valuterà equità, conflitti ferie, giorni consecutivi e distribuzione stagionale.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer note */}
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50">
+              <p className="text-xs text-gray-400 text-center">
+                I suggerimenti sono generati da Claude (Anthropic) · Gli scambi applicati sono reversibili manualmente
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal conferma riassegnazione */}
       {modal && (
