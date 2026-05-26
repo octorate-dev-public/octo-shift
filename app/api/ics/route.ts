@@ -236,19 +236,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Reperibilità: 18:00 → 09:00 del giorno successivo ────────────────────
+  // ── Reperibilità: un evento per giorno, 18:00 → 09:00 del giorno successivo ──
   if (feedType === 'all' || feedType === 'oncall') {
     const onCallSortedDates = (onCallDays ?? []).map(r => r.assignment_date).sort();
-    const onCallBlocks = groupConsecutive(onCallSortedDates);
-    for (const block of onCallBlocks) {
-      const dtEnd = addDays(block.endDate, 1);
+    for (const d of onCallSortedDates) {
+      const dtEnd = addDays(d, 1);
       events.push(vevent({
-        'DTSTART;TZID=Europe/Rome': `${isoToYmd(block.startDate)}T180000`,
+        'DTSTART;TZID=Europe/Rome': `${isoToYmd(d)}T180000`,
         'DTEND;TZID=Europe/Rome':   `${isoToYmd(dtEnd)}T090000`,
         'DTSTAMP':   stamp,
-        'UID':       `oncall-${block.startDate}-${block.endDate}-${uid}@octoshift`,
+        'UID':       `oncall-${d}-${uid}@octoshift`,
         'SUMMARY':   '📞 Reperibilità',
-        'DESCRIPTION': `Reperibilità ${block.startDate === block.endDate ? block.startDate : `${block.startDate} → ${block.endDate}`}`,
+        'DESCRIPTION': `Reperibilità ${d}`,
         'CATEGORIES':'ONCALL',
         'COLOR':     TYPE_META.oncall.color,   // tomato
       }));
