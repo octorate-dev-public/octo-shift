@@ -20,10 +20,10 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 
 | Step | Costante | Peso indicativo | Descrizione |
 |------|----------|----------------|-------------|
-| 1. Equità smart | `EQUITY_WEIGHT = 2` | ±2 per ogni giorno smart sopra/sotto la media corrente | Chi ha più giorni smart accumulati va in ufficio. **Primario.** |
+| 1. Equità smart | `EQUITY_WEIGHT = 2` | ±2 per ogni giorno smart sopra/sotto il **target proporzionale** | Target = `giorni_lavorati × frazione_smart_media_del_pool`. Chi supera il proprio target va in ufficio. Proporzionale alla presenza: chi lavora meno giorni (rientro da ferie) NON recupera smart. **Primario.** |
 | 2. Riunione team | `MEETING_BONUS = 10` | quasi-garantisce ufficio | Se oggi è il `weekly_meeting_day` del team dell'utente. |
 | 3. Seniority | `SENIORITY_BONUS = 2` | lineare 0…+2 dal junior al senior | Più senior = priorità ufficio leggermente maggiore. |
-| 4. Preferenza giorno | `PREF_OFFICE_SCORE = 3`, `PREF_INDIFF_SCORE = 1`, home=0 | Secondaria. Una preferenza home viene "corretta" dopo ~2 giorni smart sopra media. |
+| 4. Preferenza giorno | `PREF_OFFICE_SCORE = 3`, `PREF_INDIFF_SCORE = 1`, home=0 | Secondaria. Una preferenza home viene "corretta" dopo ~2 giorni smart sopra il target. |
 | 5. Stile schedule | `STABLE_WEEKDAY_BONUS = 0.8` oppure `RANDOM_JITTER = 0.5` | Fine-tune. NON deve mai battere meeting/seniority. |
 
 Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente
@@ -35,7 +35,7 @@ e si assegna ufficio fino a `max_office_capacity`, il resto va in smart.
 2. Le assenze (`leave_type` non null oppure legacy `shift_type ∈ {sick,vacation,permission}`) **NON** consumano capienza ufficio e sono **escluse** dal pool di equità.
 3. `renounce_smart = true`: assegnati per primi, sempre ufficio se c'è capienza. Esclusi dalla media di equità.
 4. Giorni non lavorativi (`work_days`/`holiday:*`): solo i `locked` sopravvivono, tutto il resto viene cancellato.
-5. La media di equità si calcola SOLO sui regular (non-renouncing).
+5. La frazione smart media (target) si calcola SOLO sui regular (non-renouncing) presenti. Si traccia `userWorkedDays` (ufficio+smart, no assenze) per il target proporzionale.
 
 ### Tracking pattern weekday per `stable`
 

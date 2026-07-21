@@ -17,8 +17,8 @@ const SCHEDULE_RULES: RulesSection[] = [
     icon: '⚖️',
     title: 'Equità (priorità principale)',
     items: [
-      'Chi ha accumulato più giorni smart rispetto alla media mensile ottiene priorità ufficio.',
-      'L\'obiettivo è bilanciare i giorni smart di ogni dipendente nel corso del mese.',
+      'Chi ha più giorni smart del proprio target proporzionale ai giorni lavorati ottiene priorità ufficio.',
+      'L\'obiettivo è bilanciare la proporzione ufficio/smart: chi lavora meno giorni (es. rientro da ferie) non recupera smart, riceve la stessa proporzione degli altri.',
       'Dipendenti con "rinuncia smart" sono sempre assegnati all\'ufficio e vengono esclusi dal calcolo dell\'equità.',
     ],
   },

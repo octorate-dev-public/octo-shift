@@ -96,6 +96,15 @@ export const schedulingAPI = {
       const userSmartDays = new Map<string, number>();
       sortedUsers.forEach((u) => userSmartDays.set(u.id, 0));
 
+      // Giorni effettivamente LAVORATI (ufficio + smart, no ferie/permessi).
+      // L'equità è proporzionale alla presenza: il target smart di ciascuno è
+      // `giorni_lavorati × frazione_smart_media`. Così chi rientra dopo settimane
+      // di ferie NON si vede scaricare tutta la coda del mese in smart per
+      // "recuperare" un conteggio assoluto: ha pochi giorni lavorati, quindi un
+      // target basso, e riceve la stessa proporzione ufficio/smart degli altri.
+      const userWorkedDays = new Map<string, number>();
+      sortedUsers.forEach((u) => userWorkedDays.set(u.id, 0));
+
       // Load user preferences for this month
       const monthYearStr = `${year}-${String(month).padStart(2, '0')}`;
       const allPreferences = await preferencesAPI.getAllMonthPreferences(monthYearStr);
@@ -115,7 +124,7 @@ export const schedulingAPI = {
       // andare in ufficio giovedì ANCHE se il suo pattern stabile dice smart.
       // MEETING_BONUS (10) >> STABLE (-0.8) + qualsiasi equity ragionevole.
 
-      const EQUITY_WEIGHT    = 2;   // ogni giorno smart sopra la media = +2 office priority
+      const EQUITY_WEIGHT    = 2;   // ogni giorno smart sopra il target proporzionale = +2 office priority
       const MEETING_BONUS    = 10;  // riunione → priorità ufficio quasi assoluta
       const SENIORITY_BONUS  = 2;   // il più senior prende +2, il meno senior +0 (lineare)
       const PREF_OFFICE_SCORE  = 3; // preferenza ufficio (secondaria a meeting+seniority)
@@ -175,6 +184,7 @@ export const schedulingAPI = {
               newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
               if (locked.shiftType === 'smartwork') {
                 userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
+                userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
               }
             }
           }
@@ -208,8 +218,11 @@ export const schedulingAPI = {
           if (lockedMap.has(lockKey)) {
             const locked = lockedMap.get(lockKey)!;
             newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
-            if (locked.shiftType === 'smartwork' && !locked.leaveType) {
-              userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
+            if (!locked.leaveType && (locked.shiftType === 'smartwork' || locked.shiftType === 'office')) {
+              userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
+              if (locked.shiftType === 'smartwork') {
+                userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
+              }
             }
           }
         }
@@ -243,22 +256,29 @@ export const schedulingAPI = {
           });
         }
 
-        // 5. Compute running equity average over regular (non-renouncing) users only
-        const avgSmartDays = regularUnlocked.length > 0
-          ? regularUnlocked.reduce((sum, u) => sum + (userSmartDays.get(u.id) ?? 0), 0) / regularUnlocked.length
-          : 0;
+        // 5. Frazione smart media (proporzionale alla presenza), calcolata sul
+        //    pool regular presente. È il rapporto smart/lavorati aggregato: si
+        //    autoregola verso l'equilibrio imposto dalla capienza ufficio.
+        //    Fallback 0.5 finché nessuno ha ancora lavorato (inizio mese).
+        const poolSmart  = regularUnlocked.reduce((s, u) => s + (userSmartDays.get(u.id) ?? 0), 0);
+        const poolWorked = regularUnlocked.reduce((s, u) => s + (userWorkedDays.get(u.id) ?? 0), 0);
+        const targetSmartFrac = poolWorked > 0 ? poolSmart / poolWorked : 0.5;
 
         // 6. Score each regular user for office assignment (higher = more office priority)
-        //    Equity is primary: surplus smart days above average push toward office.
-        //    Preference is secondary: can shift priority by ~1–2 smart-days worth,
-        //    so home users get corrected once they're ~2 days above average.
+        //    Equity is primary: chi ha PIÙ smart del proprio target proporzionale
+        //    (giorni_lavorati × frazione media) va spinto in ufficio. Il target è
+        //    scalato sulla presenza, quindi un rientro da ferie non "recupera"
+        //    smart: ha pochi giorni lavorati → target basso → nessun surplus.
         const getPref = (userId: string): PreferenceType =>
           prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
 
         const scoreUser = (user: User): number => {
-          // 1. EQUITÀ — primaria
-          const smartDays = userSmartDays.get(user.id) ?? 0;
-          const equityScore = (smartDays - avgSmartDays) * EQUITY_WEIGHT;
+          // 1. EQUITÀ — primaria, proporzionale ai giorni lavorati
+          const smartDays  = userSmartDays.get(user.id) ?? 0;
+          const workedDays = userWorkedDays.get(user.id) ?? 0;
+          const expectedSmart = workedDays * targetSmartFrac;
+          // surplus smart rispetto al proprio target → priorità ufficio
+          const equityScore = (smartDays - expectedSmart) * EQUITY_WEIGHT;
 
           // 2. RIUNIONE — quasi-garantisce ufficio (10 punti >> qualsiasi altro termine)
           const meetingBonus = meetingUserIds.has(user.id) ? MEETING_BONUS : 0;
@@ -313,6 +333,8 @@ export const schedulingAPI = {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
           const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
+          // Giorno lavorato (ufficio o smart) → conta per il target proporzionale
+          userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
           if (type === 'office') {
             officeCount++;
             // Traccia weekday per utenti 'stable' (usato nelle settimane successive)
