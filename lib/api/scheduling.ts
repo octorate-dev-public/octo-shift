@@ -59,6 +59,20 @@ export const schedulingAPI = {
 
       const { supabase } = await import('../supabase');
 
+      // Rimuovi i turni delle risorse disattivate (is_active = false).
+      // getAllUsers() restituisce solo utenti attivi, quindi la generazione non
+      // li riassegna mai; ma le righe già presenti nel mese resterebbero orfane
+      // e continuerebbero a comparire nel calendario. Le eliminiamo qui così che
+      // rigenerando il mese le risorse disattivate non vengano più considerate.
+      const activeUserIds = new Set(allUsers.map((u) => u.id));
+      const staleShiftIds = existingShifts
+        .filter((s) => !activeUserIds.has(s.user_id))
+        .map((s) => s.id);
+      if (staleShiftIds.length > 0) {
+        await supabase.from('shifts').delete().in('id', staleShiftIds);
+        log.info('generateMonthlySchedule', `Rimossi ${staleShiftIds.length} turni di risorse disattivate`);
+      }
+
       // Fetch teams for meeting-day logic
       const { data: teamsRaw } = await supabase
         .from('teams')
