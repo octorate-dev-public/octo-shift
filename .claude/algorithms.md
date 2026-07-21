@@ -36,6 +36,8 @@ Assegnazione ufficio in due passaggi, con **budget ufficio SETTIMANALE** (non me
 
 Quindi capienza giornaliera ufficio ∈ `[⌈max/3⌉, max]` (≥1 se possibile), e lo smart è spalmato per settimana ~`min_smart_days/settimane` (chiave settings `min_smart_days`, default 8).
 
+**Post-pass di equalizzazione (dopo il loop, prima dell'upsert).** Porta tutti i regular sulla stessa media di smart-equivalente. Strumento: **swap ufficio↔smart nello stesso giorno** tra un regular sopra media (in smart → ufficio) e uno sotto media (in ufficio → smart). Lo swap non cambia il numero di persone in ufficio quel giorno → non viola capienza/floor/locked. Esclude locked, assenze, riunioni (chi ha riunione resta in ufficio), `renounce_smart`. Si applica solo se il divario di smart-equivalente ≥ 2 → ogni swap riduce strettamente la varianza, converge. È ciò che garantisce davvero il minimo e l'equità (i budget di generazione danno solo un buon punto di partenza). Le ferie sono fisse: chi ha molte ferie resta sopra media (irriducibile), i presenti a bassa-ferie salgono verso la media.
+
 ### Regole hard
 
 1. I `locked` non si toccano mai (vengono solo "letti" per contabilizzarli nella capienza).

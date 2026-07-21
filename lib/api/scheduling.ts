@@ -239,6 +239,9 @@ export const schedulingAPI = {
       let trackedWeek = -1;
 
       const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type: LeaveType | null }> = [];
+      // Riunioni per data (per il post-pass di bilanciamento: chi ha riunione
+      // non va spostato fuori dall'ufficio).
+      const meetingByDate = new Map<string, Set<string>>();
 
       for (const date of monthDays) {
         const dateStr = formatDate(date);
@@ -280,6 +283,7 @@ export const schedulingAPI = {
             meetingUserIds.add(u.id);
           }
         });
+        meetingByDate.set(dateStr, meetingUserIds);
 
         // 2. Count locked-office shifts toward today's capacity.
         //    IMPORTANTE: un locked con base 'office' consuma capienza ANCHE se ha
@@ -487,12 +491,74 @@ export const schedulingAPI = {
         }
       }
 
+      // ── Post-pass: equalizza lo smart-equivalente tra i regular ──────────
+      // Obiettivo: tutti sulla stessa media di smart-equivalente (smart reali +
+      // ferie). Strumento: SWAP ufficio↔smart nello STESSO giorno tra un regular
+      // sopra media (in smart → lo mando in ufficio) e uno sotto media (in ufficio
+      // → lo mando in smart). Lo swap non cambia il numero di persone in ufficio
+      // quel giorno → NON viola capienza, floor minimo, né i turni bloccati.
+      // Esclude: locked, assenze (ferie/permessi), riunioni (chi ha riunione resta
+      // in ufficio), renounce_smart. Ogni swap riduce strettamente la varianza
+      // (si applica solo se il divario di smart-equivalente è ≥ 2) → converge.
+      {
+        const regularIds = new Set(
+          sortedUsers.filter((u) => !u.renounce_smart).map((u) => u.id),
+        );
+        const se = new Map<string, number>(); // smart-equivalente corrente
+        sortedUsers.forEach((u) => se.set(u.id, smartEquiv(u.id)));
+
+        const byDate = new Map<string, typeof newShifts>();
+        for (const s of newShifts) {
+          if (!byDate.has(s.shift_date)) byDate.set(s.shift_date, []);
+          byDate.get(s.shift_date)!.push(s);
+        }
+
+        const movable = (e: (typeof newShifts)[number]) =>
+          regularIds.has(e.user_id) &&
+          !e.leave_type &&
+          !lockedMap.has(`${e.user_id}:${e.shift_date}`);
+
+        let improved = true;
+        let guard = 0;
+        while (improved && guard++ < 10000) {
+          improved = false;
+          for (const [dateStr, entries] of byDate) {
+            const meet = meetingByDate.get(dateStr) ?? new Set<string>();
+            // Candidato A: in ufficio, spostabile, senza riunione, con se più basso
+            let A: (typeof newShifts)[number] | null = null;
+            let B: (typeof newShifts)[number] | null = null;
+            for (const e of entries) {
+              if (!movable(e)) continue;
+              if (e.shift_type === 'office' && !meet.has(e.user_id)) {
+                if (!A || se.get(e.user_id)! < se.get(A.user_id)!) A = e;
+              } else if (e.shift_type === 'smartwork') {
+                if (!B || se.get(e.user_id)! > se.get(B.user_id)!) B = e;
+              }
+            }
+            if (A && B && se.get(B.user_id)! - se.get(A.user_id)! >= 2) {
+              A.shift_type = 'smartwork';
+              B.shift_type = 'office';
+              se.set(A.user_id, se.get(A.user_id)! + 1);
+              se.set(B.user_id, se.get(B.user_id)! - 1);
+              improved = true;
+            }
+          }
+        }
+      }
+
+      // Ricalcola la distribuzione smart-equivalente dopo il post-pass (per il log)
+      const finalEquiv = new Map<string, number>();
+      for (const s of newShifts) {
+        if (s.leave_type || s.shift_type === 'smartwork') {
+          finalEquiv.set(s.user_id, (finalEquiv.get(s.user_id) ?? 0) + 1);
+        }
+      }
       log.info('generateMonthlySchedule', `Preparati ${newShifts.length} turni`, {
         users: sortedUsers.length,
         days: monthDays.length,
         locked: lockedMap.size,
-        smartDistribution: Object.fromEntries(
-          [...userSmartDays.entries()].map(([id, n]) => [
+        smartEquivDistribution: Object.fromEntries(
+          [...finalEquiv.entries()].map(([id, n]) => [
             sortedUsers.find((u) => u.id === id)?.full_name ?? id,
             n,
           ]),
