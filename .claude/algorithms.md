@@ -25,6 +25,8 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 | 3. Seniority | `SENIORITY_BONUS = 2` | lineare 0…+2 dal junior al senior | Più senior = priorità ufficio leggermente maggiore. |
 | 4. Preferenza giorno | `PREF_OFFICE_SCORE = 3`, `PREF_INDIFF_SCORE = 1`, home=0 | Secondaria. Una preferenza home viene "corretta" dopo ~2 giorni smart sopra il target. |
 | 5. Stile schedule | `STABLE_WEEKDAY_BONUS = 0.8` oppure `RANDOM_JITTER = 0.5` | Fine-tune. NON deve mai battere meeting/seniority. |
+| 6. Random settimanale | `WEEKLY_MIX_JITTER = 0.6` (±0.3) | Seeded su `utente+mese+settimana` (`seededUnit`): stabile entro la settimana, varia tra settimane → ogni tanto composizioni ufficio diverse. Tiebreaker. |
+| 7. Mix anzianità | `SENIORITY_MIX = 0.35` | A parità, alterna per settimana il micro-nudge verso l'ufficio tra metà senior e metà junior (`idx < regularCount/2`) → mescola anziani e giovani. Tiebreaker. |
 
 Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente
 e si assegna ufficio fino a `max_office_capacity`, il resto va in smart.

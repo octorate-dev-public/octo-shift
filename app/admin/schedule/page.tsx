@@ -57,6 +57,8 @@ const SCHEDULE_RULES: RulesSection[] = [
     items: [
       '"Stabile": tende a mantenere lo stesso giorno ufficio/smart ogni settimana (±0.8 punti).',
       '"Random": introduce una variazione casuale (±0.25) per distribuire i turni in modo vario.',
+      'Random settimanale (±0.3): stabile entro la settimana, cambia tra settimane → ogni tanto composizioni ufficio diverse.',
+      'Mix anzianità (±0.35): a parità, alterna il nudge senior/junior per settimana → mescola anziani e giovani in ufficio.',
       'Lo stile non batte mai equità, riunioni o anzianità.',
     ],
   },

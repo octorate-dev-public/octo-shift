@@ -8,6 +8,21 @@ import { createLogger, toAppError } from '../logger';
 
 const log = createLogger('schedulingAPI');
 
+/**
+ * Pseudo-random deterministico in [0,1) da una stringa seed (hash FNV-1a).
+ * Deterministico: lo stesso seed dà sempre lo stesso valore, così il "random
+ * settimanale" resta stabile entro la settimana e non cambia a ogni rigenerazione
+ * per la stessa settimana.
+ */
+function seededUnit(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
 export const schedulingAPI = {
   /**
    * Generate the monthly schedule respecting:
@@ -119,6 +134,8 @@ export const schedulingAPI = {
       //  3. SENIORITY   → i più senior hanno priorità ufficio a parità di equity
       //  4. PREFERENZA  → home/office/indifferente (seconda-scelta giornaliera)
       //  5. STILE       → stable/random (tono fine, non deve battere i precedenti)
+      //  6. RANDOM SETT.→ jitter per settimana del mese (±0.3): ogni tanto pairing diversi
+      //  7. MIX ANZIAN. → micro-nudge alternato senior/junior per settimana (mescola le età)
       //
       // Esempio: Devin (senior, riunione giovedì, preferenza stabile) deve
       // andare in ufficio giovedì ANCHE se il suo pattern stabile dice smart.
@@ -132,6 +149,8 @@ export const schedulingAPI = {
       // home preference = 0
       const STABLE_WEEKDAY_BONUS = 0.8; // ±0.8: stile stabile crea coerenza ma NON batte riunioni
       const RANDOM_JITTER        = 0.5; // ±0.25: variazione visibile ma subordinata a tutto
+      const WEEKLY_MIX_JITTER    = 0.6; // ±0.3: random dipendente dalla settimana del mese → ogni tanto composizioni ufficio diverse
+      const SENIORITY_MIX        = 0.35; // a parità, alterna il micro-nudge senior/junior per settimana → mescola anziani e giovani
 
       // Numero di utenti regular per normalizzare la seniority
       const regularCount = sortedUsers.filter(u => !u.renounce_smart).length || 1;
@@ -312,7 +331,24 @@ export const schedulingAPI = {
             styleScore = (Math.random() - 0.5) * RANDOM_JITTER;
           }
 
-          return equityScore + meetingBonus + seniorityScore + prefScore + styleScore;
+          // 6. RANDOM SETTIMANALE — piccolo, dipende dalla settimana del mese.
+          //    Stabile entro la settimana (seed = utente+mese+settimana), varia tra
+          //    settimane: ogni tanto la composizione ufficio cambia e gente che di
+          //    norma non si incrocia finisce insieme. ±0.3 → tiebreaker, non batte
+          //    equità/riunione/seniority.
+          const weekOfMonth = Math.ceil(date.getDate() / 7);
+          const weeklyMix =
+            (seededUnit(`${user.id}:${year}-${month}:w${weekOfMonth}`) - 0.5) * WEEKLY_MIX_JITTER;
+
+          // 7. MIX ANZIANITÀ — piccolissimo. A parità, alterna quale metà
+          //    (senior/junior) riceve un micro-nudge verso l'ufficio a seconda
+          //    della settimana, così i turni ufficio mescolano anziani e giovani
+          //    invece di raggrupparli (la seniority da sola tende a riempire
+          //    l'ufficio di senior). idx 0 = più senior.
+          const isSenior = idx < regularCount / 2;
+          const seniorityMix = ((weekOfMonth % 2 === 0) === isSenior) ? SENIORITY_MIX : 0;
+
+          return equityScore + meetingBonus + seniorityScore + prefScore + styleScore + weeklyMix + seniorityMix;
         };
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));
