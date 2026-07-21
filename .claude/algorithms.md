@@ -20,7 +20,7 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 
 | Step | Costante | Peso indicativo | Descrizione |
 |------|----------|----------------|-------------|
-| 1. Equità smart | `EQUITY_WEIGHT = 2` | ±2 per ogni giorno smart sopra/sotto il **target proporzionale** | Target = `giorni_lavorati × frazione_smart_media_del_pool`. Chi supera il proprio target va in ufficio. Proporzionale alla presenza: chi lavora meno giorni (rientro da ferie) NON recupera smart. **Primario.** |
+| 1. Equità smart-equivalente | `EQUITY_WEIGHT = 2` | ±2 per ogni giorno sopra/sotto la media | **Smart-equivalente = smart reali + ferie/permessi/malattia** (`smartEquiv`). Le FERIE contano come smart: chi ha molte ferie è sopra media → priorità UFFICIO quando presente (non accumula altro smart, e un rientro da ferie va in ufficio). Bilancia i giorni fuori-ufficio totali tra tutti. **Primario.** |
 | 2. Riunione team | `MEETING_BONUS = 10` | quasi-garantisce ufficio | Se oggi è il `weekly_meeting_day` del team dell'utente. |
 | 3. Seniority | `SENIORITY_BONUS = 2` | lineare 0…+2 dal junior al senior | Più senior = priorità ufficio leggermente maggiore. |
 | 4. Preferenza giorno | `PREF_OFFICE_SCORE = 3`, `PREF_INDIFF_SCORE = 1`, home=0 | Secondaria. Una preferenza home viene "corretta" dopo ~2 giorni smart sopra il target. |
@@ -30,7 +30,7 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 
 Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente.
 Assegnazione ufficio in due passaggi, con **budget ufficio SETTIMANALE** (non mensile):
-- Obiettivo smart/settimana = `round(min_smart_days / settimane_del_mese)` (≥1). Cap ufficio settimanale per persona = `presenza_settimana - obiettivo_smart_settimana`. `userOfficeUsedWeek` si azzera a ogni nuova settimana (`weekOf(ds) = ceil(giorno/7)`, monotono → nessun reset a metà settimana per festivi).
+- Obiettivo smart/settimana = `round(min_smart_days / settimane_del_mese)` (≥1). Le ferie della settimana contano verso l'obiettivo: `neededSmart = max(0, obiettivo - ferie_settimana)`; cap ufficio settimanale = `presenza_settimana - neededSmart`. Quindi chi ha ferie in una settimana passa i giorni presenti in ufficio (non accumula smart oltre le ferie). `userOfficeUsedWeek` si azzera a ogni nuova settimana (`weekOf(ds) = ceil(giorno/7)`, monotono → nessun reset a metà settimana per festivi).
 - **Pass 1** — ufficio ai migliori per score **con budget settimanale residuo**, fino a `max_office_capacity`. Chi ha raggiunto il tetto ufficio della settimana va in smart anche se c'è posto → smart distribuito su OGNI settimana, niente cluster.
 - **Pass 2** — se l'ufficio è sotto il floor `minOfficePerDay = min(max, max(1, ceil(max/3)))`, promuove a ufficio i regular in smart preferendo chi ha meno ufficio quella settimana (sfora il budget), fino al floor. Garantisce ≥1 in ufficio se c'è un assegnabile.
 
@@ -42,7 +42,7 @@ Quindi capienza giornaliera ufficio ∈ `[⌈max/3⌉, max]` (≥1 se possibile)
 2. Le assenze (`leave_type` non null oppure legacy `shift_type ∈ {sick,vacation,permission}`) sono **escluse** dal pool di equità. Base sotto l'overlay: le assenze **non-locked** ricevono base `smartwork` (mai `office`), così una revoca del permesso non può mai sfondare la capienza ufficio. **Eccezione**: un `locked` con base `office` consuma capienza **anche** con overlay ferie/permesso (revocabile → posto prenotato).
 3. `renounce_smart = true`: assegnati per primi, sempre ufficio se c'è capienza. Esclusi dalla media di equità.
 4. Giorni non lavorativi (`work_days`/`holiday:*`): solo i `locked` sopravvivono, tutto il resto viene cancellato.
-5. La frazione smart media (target) si calcola SOLO sui regular (non-renouncing) presenti. Si traccia `userWorkedDays` (ufficio+smart, no assenze) per il target proporzionale.
+5. La media dello smart-equivalente (target equità) si calcola SOLO sui regular (non-renouncing) presenti. Si tracciano `userSmartDays` (smart reali) e `userFerieDays` (ferie/permessi/malattia); `smartEquiv = smart + ferie`.
 
 ### Tracking pattern weekday per `stable`
 

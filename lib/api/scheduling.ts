@@ -116,19 +116,19 @@ export const schedulingAPI = {
       const seniorityIndex = new Map<string, number>();
       sortedUsers.forEach((u, i) => seniorityIndex.set(u.id, i));
 
-      // Running smart-day counter per user — drives equity across the month
-      // renounce_smart users are tracked but excluded from the equity average
-      const userSmartDays = new Map<string, number>();
-      sortedUsers.forEach((u) => userSmartDays.set(u.id, 0));
-
-      // Giorni effettivamente LAVORATI (ufficio + smart, no ferie/permessi).
-      // L'equità è proporzionale alla presenza: il target smart di ciascuno è
-      // `giorni_lavorati × frazione_smart_media`. Così chi rientra dopo settimane
-      // di ferie NON si vede scaricare tutta la coda del mese in smart per
-      // "recuperare" un conteggio assoluto: ha pochi giorni lavorati, quindi un
-      // target basso, e riceve la stessa proporzione ufficio/smart degli altri.
-      const userWorkedDays = new Map<string, number>();
-      sortedUsers.forEach((u) => userWorkedDays.set(u.id, 0));
+      // Contatori equità (correnti nel mese). L'equità bilancia lo SMART-EQUIVALENTE
+      // = giorni smart reali + giorni di ferie/permesso/malattia. Le ferie contano
+      // come smart: chi è stato in ferie ha già "maturato" i suoi giorni fuori
+      // ufficio → ha priorità UFFICIO quando presente (non accumula altro smart).
+      // Questo bilancia i giorni fuori-ufficio totali tra tutti ed evita che un
+      // rientro da ferie si prenda anche tutto lo smart.
+      const userSmartDays = new Map<string, number>();  // solo smart reali (presenza)
+      const userFerieDays = new Map<string, number>();  // ferie/permesso/malattia
+      sortedUsers.forEach((u) => {
+        userSmartDays.set(u.id, 0);
+        userFerieDays.set(u.id, 0);
+      });
+      const smartEquiv = (uid: string) => (userSmartDays.get(uid) ?? 0) + (userFerieDays.get(uid) ?? 0);
 
       // Load user preferences for this month
       const monthYearStr = `${year}-${String(month).padStart(2, '0')}`;
@@ -208,13 +208,17 @@ export const schedulingAPI = {
 
       const weekOf = (ds: string) => Math.ceil(parseInt(ds.slice(8, 10), 10) / 7);
 
-      // Presenza per (utente, settimana del mese) — esclude ferie/permessi/malattia
+      // Presenza per (utente, settimana del mese) — esclude ferie/permessi/malattia.
+      // weekWorkingDays = giorni lavorativi di calendario per settimana (uguale per tutti):
+      // le ferie di un utente in una settimana = weekWorkingDays - presenza.
       const presentByWeek = new Map<string, Map<number, number>>();
       sortedUsers.forEach((u) => presentByWeek.set(u.id, new Map()));
+      const weekWorkingDays = new Map<number, number>();
       const weekSet = new Set<number>();
       for (const ds of workingDatesArr) {
         const w = weekOf(ds);
         weekSet.add(w);
+        weekWorkingDays.set(w, (weekWorkingDays.get(w) ?? 0) + 1);
         for (const u of sortedUsers) {
           const key = `${u.id}:${ds}`;
           const absent = !!existingLeaveMap.get(key) || !!lockedMap.get(key)?.leaveType;
@@ -225,6 +229,9 @@ export const schedulingAPI = {
         }
       }
       const weeksOfMonth = Math.max(1, weekSet.size);
+      // Obiettivo smart-equivalente per settimana (min mensile spalmato). Le FERIE
+      // contano verso questo obiettivo: chi è in ferie ha già "maturato" smart e
+      // non deve rubarne altri ai presenti → i suoi giorni presenti vanno in ufficio.
       const weeklySmartTarget = Math.max(1, Math.round(minSmartDays / weeksOfMonth));
 
       // Giorni ufficio usati nella settimana corrente (azzerato al cambio settimana).
@@ -255,9 +262,8 @@ export const schedulingAPI = {
             if (lockedMap.has(lockKey)) {
               const locked = lockedMap.get(lockKey)!;
               newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
-              if (locked.shiftType === 'smartwork') {
+              if (locked.shiftType === 'smartwork' && !locked.leaveType) {
                 userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
-                userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
               }
             }
           }
@@ -290,17 +296,16 @@ export const schedulingAPI = {
           }
         });
 
-        // 3. Persist locked shifts. Leave days don't count toward smart-day equity.
+        // 3. Persist locked shifts. Ferie/permessi contano come smart-equivalente.
         for (const user of sortedUsers) {
           const lockKey = `${user.id}:${dateStr}`;
           if (lockedMap.has(lockKey)) {
             const locked = lockedMap.get(lockKey)!;
             newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: locked.shiftType, leave_type: locked.leaveType });
-            if (!locked.leaveType && (locked.shiftType === 'smartwork' || locked.shiftType === 'office')) {
-              userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
-              if (locked.shiftType === 'smartwork') {
-                userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
-              }
+            if (locked.leaveType) {
+              userFerieDays.set(user.id, (userFerieDays.get(user.id) ?? 0) + 1);
+            } else if (locked.shiftType === 'smartwork') {
+              userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
             }
           }
         }
@@ -319,11 +324,8 @@ export const schedulingAPI = {
         const regularUnlocked = workingUnlocked.filter((u) => !u.renounce_smart);
 
         // Righe di assenza (ferie/permesso/malattia) NON bloccate: la base sotto
-        // l'overlay è SEMPRE 'smartwork', mai 'office'. Motivo: il permesso può
-        // essere revocato; con base smart la revoca non aggiunge mai un posto in
-        // ufficio → capienza sempre rispettata. La base smart dà inoltre credito
-        // smart "equità" mostrato nei totali (giorni smart anche in ferie).
-        // Non tocca i contatori di equità (l'utente è assente).
+        // l'overlay è SEMPRE 'smartwork', mai 'office' (una revoca non sfonda mai
+        // la capienza ufficio). Le ferie contano come smart-equivalente nell'equità.
         for (const user of onLeaveToday) {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
           newShifts.push({
@@ -332,31 +334,24 @@ export const schedulingAPI = {
             shift_type: 'smartwork',
             leave_type: existingLeave,
           });
+          userFerieDays.set(user.id, (userFerieDays.get(user.id) ?? 0) + 1);
         }
 
-        // 5. Frazione smart media (proporzionale alla presenza), calcolata sul
-        //    pool regular presente. È il rapporto smart/lavorati aggregato: si
-        //    autoregola verso l'equilibrio imposto dalla capienza ufficio.
-        //    Fallback 0.5 finché nessuno ha ancora lavorato (inizio mese).
-        const poolSmart  = regularUnlocked.reduce((s, u) => s + (userSmartDays.get(u.id) ?? 0), 0);
-        const poolWorked = regularUnlocked.reduce((s, u) => s + (userWorkedDays.get(u.id) ?? 0), 0);
-        const targetSmartFrac = poolWorked > 0 ? poolSmart / poolWorked : 0.5;
+        // 5. Media dello smart-equivalente (smart reali + ferie) sul pool regular
+        //    presente oggi. L'equità spinge in ufficio chi è SOPRA la media, così i
+        //    giorni fuori-ufficio totali si bilanciano tra tutti. Chi ha molte ferie
+        //    è sopra media → ufficio quando presente (non accumula altro smart).
+        const avgSmartEquiv = regularUnlocked.length > 0
+          ? regularUnlocked.reduce((s, u) => s + smartEquiv(u.id), 0) / regularUnlocked.length
+          : 0;
 
         // 6. Score each regular user for office assignment (higher = more office priority)
-        //    Equity is primary: chi ha PIÙ smart del proprio target proporzionale
-        //    (giorni_lavorati × frazione media) va spinto in ufficio. Il target è
-        //    scalato sulla presenza, quindi un rientro da ferie non "recupera"
-        //    smart: ha pochi giorni lavorati → target basso → nessun surplus.
         const getPref = (userId: string): PreferenceType =>
           prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
 
         const scoreUser = (user: User): number => {
-          // 1. EQUITÀ — primaria, proporzionale ai giorni lavorati
-          const smartDays  = userSmartDays.get(user.id) ?? 0;
-          const workedDays = userWorkedDays.get(user.id) ?? 0;
-          const expectedSmart = workedDays * targetSmartFrac;
-          // surplus smart rispetto al proprio target → priorità ufficio
-          const equityScore = (smartDays - expectedSmart) * EQUITY_WEIGHT;
+          // 1. EQUITÀ — primaria. Surplus di smart-equivalente sopra la media → ufficio.
+          const equityScore = (smartEquiv(user.id) - avgSmartEquiv) * EQUITY_WEIGHT;
 
           // 2. RIUNIONE — quasi-garantisce ufficio (10 punti >> qualsiasi altro termine)
           const meetingBonus = meetingUserIds.has(user.id) ? MEETING_BONUS : 0;
@@ -437,7 +432,13 @@ export const schedulingAPI = {
         for (const user of regularUnlocked) {
           const used = userOfficeUsedWeek.get(user.id) ?? 0;
           const presentThisWeek = presentByWeek.get(user.id)?.get(weekOfMonth) ?? 0;
-          const weekBudget = Math.max(0, presentThisWeek - weeklySmartTarget);
+          const workThisWeek = weekWorkingDays.get(weekOfMonth) ?? 0;
+          const ferieThisWeek = Math.max(0, workThisWeek - presentThisWeek);
+          // Smart reali ancora necessari = target meno le ferie (che già contano
+          // come smart). Chi ha molte ferie → neededSmart 0 → budget = tutti i
+          // giorni presenti in ufficio (non accumula smart oltre le ferie).
+          const neededSmart = Math.max(0, weeklySmartTarget - ferieThisWeek);
+          const weekBudget = Math.max(0, presentThisWeek - neededSmart);
           if (officeCount < maxCapacity && used < weekBudget) {
             regDecision.set(user.id, 'office');
             officeCount++;
@@ -473,7 +474,6 @@ export const schedulingAPI = {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
           const type = regDecision.get(user.id)!;
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
-          userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
           if (type === 'office') {
             if (user.schedule_style === 'stable') {
               userOfficeWeekdays.get(user.id)?.add(dayOfWeek);
