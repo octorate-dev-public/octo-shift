@@ -19,8 +19,9 @@ const SCHEDULE_RULES: RulesSection[] = [
     icon: '⚖️',
     title: 'Equità (priorità principale)',
     items: [
-      'Ogni dipendente ha garantito un minimo di giorni smart al mese (configurabile nelle Impostazioni, default 8): il numero di giorni ufficio è limitato a "giorni presente − minimo smart".',
-      'L\'ufficio si riempie al minimo a ⌈capienza/3⌉ e al massimo alla capienza, ma non deve per forza essere pieno: se saturarlo toglierebbe smart minimo, resta più vuoto.',
+      'Lo smart è distribuito PER SETTIMANA: obiettivo ≈ (smart minimo mensile ÷ settimane del mese) giorni di smart a settimana. Così ognuno mescola ufficio e smart ogni settimana, senza restare in ufficio per settimane intere.',
+      'Il minimo smart mensile è configurabile nelle Impostazioni (default 8).',
+      'L\'ufficio si riempie al minimo a ⌈capienza/3⌉ e al massimo alla capienza, ma non deve per forza essere pieno: se saturarlo toglierebbe smart, resta più vuoto (almeno 1 persona però c\'è sempre).',
       'Chi ha più giorni smart del proprio target proporzionale ai giorni lavorati ottiene priorità ufficio.',
       'Chi lavora meno giorni (es. rientro da ferie) non recupera smart, riceve la stessa proporzione degli altri.',
       'Dipendenti con "rinuncia smart" sono sempre assegnati all\'ufficio e vengono esclusi dal calcolo dell\'equità.',

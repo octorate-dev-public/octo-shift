@@ -27,7 +27,9 @@ export const schedulingAPI = {
   /**
    * Generate the monthly schedule respecting:
    *  1. Office capacity per giorno ∈ [ceil(max/3), max] — NON deve saturare al max
-   *  2. Ogni dipendente ha ≥ minSmartDays giorni smart/mese (cap officeBudget = presenza - minSmartDays)
+   *  2. Smart distribuito PER SETTIMANA: obiettivo smart/settimana = minSmartDays/settimane;
+   *     cap ufficio settimanale = presenza_settimana - obiettivo → ognuno mescola
+   *     ufficio+smart ogni settimana (niente cluster ufficio-poi-smart)
    *  3. Locked shifts are never touched
    *  4. Weekends/holidays → skipped
    *  5. renounce_smart users → always office first (excluded from equity pool, no smart minimum)
@@ -194,27 +196,40 @@ export const schedulingAPI = {
         log.info('generateMonthlySchedule', `Rimossi turni su ${nonWorkingDates.length} giorni non lavorativi`);
       }
 
-      // ── Budget ufficio per-persona (garanzia smart minimo) ──────────────
-      // Giorni lavorativi del mese in cui l'utente NON è assente (né leave overlay
-      // né locked-leave). officeBudget = giorni_presente - minSmartDays: è il numero
-      // massimo di giorni ufficio che può fare restando sopra il minimo smart.
+      // ── Budget ufficio SETTIMANALE (variabilità + smart minimo) ─────────
+      // Il budget è per-settimana, non mensile: così lo smart è distribuito su
+      // TUTTE le settimane (niente cluster "ufficio per 3 settimane, poi smart").
+      // Obiettivo smart/settimana = min_smart_days / settimane_del_mese.
+      // Cap ufficio settimanale per persona = presenza_settimana - obiettivo_smart_settimana.
       const nonWorkingSet = new Set(nonWorkingDates);
       const workingDatesArr = monthDays
         .map((d) => formatDate(d))
         .filter((ds) => !nonWorkingSet.has(ds));
 
-      const userOfficeBudget = new Map<string, number>();
-      const userOfficeUsed = new Map<string, number>();
-      sortedUsers.forEach((u) => {
-        let present = 0;
-        for (const ds of workingDatesArr) {
+      const weekOf = (ds: string) => Math.ceil(parseInt(ds.slice(8, 10), 10) / 7);
+
+      // Presenza per (utente, settimana del mese) — esclude ferie/permessi/malattia
+      const presentByWeek = new Map<string, Map<number, number>>();
+      sortedUsers.forEach((u) => presentByWeek.set(u.id, new Map()));
+      const weekSet = new Set<number>();
+      for (const ds of workingDatesArr) {
+        const w = weekOf(ds);
+        weekSet.add(w);
+        for (const u of sortedUsers) {
           const key = `${u.id}:${ds}`;
           const absent = !!existingLeaveMap.get(key) || !!lockedMap.get(key)?.leaveType;
-          if (!absent) present++;
+          if (!absent) {
+            const rec = presentByWeek.get(u.id)!;
+            rec.set(w, (rec.get(w) ?? 0) + 1);
+          }
         }
-        userOfficeBudget.set(u.id, Math.max(0, present - minSmartDays));
-        userOfficeUsed.set(u.id, 0);
-      });
+      }
+      const weeksOfMonth = Math.max(1, weekSet.size);
+      const weeklySmartTarget = Math.max(1, Math.round(minSmartDays / weeksOfMonth));
+
+      // Giorni ufficio usati nella settimana corrente (azzerato al cambio settimana).
+      const userOfficeUsedWeek = new Map<string, number>();
+      let trackedWeek = -1;
 
       const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type: LeaveType | null }> = [];
 
@@ -223,6 +238,15 @@ export const schedulingAPI = {
         const dayOfWeek = date.getDay();
         const dayName = DAY_NAMES[dayOfWeek];
         const isNonWorkingDay = !workDays.includes(dayName) || holidaySet.has(dateStr);
+
+        // Settimana del mese (1..5). Monotona nel tempo → il reset del budget
+        // settimanale scatta solo al passaggio a una nuova settimana (mai a metà,
+        // nemmeno con un festivo infrasettimanale).
+        const weekOfMonth = weekOf(dateStr);
+        if (weekOfMonth !== trackedWeek) {
+          trackedWeek = weekOfMonth;
+          sortedUsers.forEach((u) => userOfficeUsedWeek.set(u.id, 0));
+        }
 
         if (isNonWorkingDay) {
           // Non-working day: skip completely. Only preserve explicitly locked shifts.
@@ -262,7 +286,7 @@ export const schedulingAPI = {
           const locked = lockedMap.get(lockKey);
           if (locked && locked.shiftType === 'office') {
             officeCount++;
-            userOfficeUsed.set(u.id, (userOfficeUsed.get(u.id) ?? 0) + 1);
+            userOfficeUsedWeek.set(u.id, (userOfficeUsedWeek.get(u.id) ?? 0) + 1);
           }
         });
 
@@ -369,7 +393,6 @@ export const schedulingAPI = {
           //    settimane: ogni tanto la composizione ufficio cambia e gente che di
           //    norma non si incrocia finisce insieme. ±0.3 → tiebreaker, non batte
           //    equità/riunione/seniority.
-          const weekOfMonth = Math.ceil(date.getDate() / 7);
           const weeklyMix =
             (seededUnit(`${user.id}:${year}-${month}:w${weekOfMonth}`) - 0.5) * WEEKLY_MIX_JITTER;
 
@@ -394,7 +417,7 @@ export const schedulingAPI = {
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
           if (type === 'office') {
             officeCount++;
-            userOfficeUsed.set(user.id, (userOfficeUsed.get(user.id) ?? 0) + 1);
+            userOfficeUsedWeek.set(user.id, (userOfficeUsedWeek.get(user.id) ?? 0) + 1);
           } else {
             // Capacity forced them into smart — still track, but they're outside the equity pool
             userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
@@ -402,21 +425,23 @@ export const schedulingAPI = {
         }
 
         // 8. Assegna i regular con DUE vincoli oltre lo score:
-        //    • cap per-persona: max officeBudget giorni ufficio (garantisce ≥ minSmartDays smart)
+        //    • cap SETTIMANALE per-persona: max (presenza_settimana - obiettivo_smart_settimana)
+        //      giorni ufficio → smart distribuito su ogni settimana, mai cluster
         //    • capienza giornaliera: officeCount ∈ [minOfficePerDay, maxCapacity]
         //
-        //    Pass 1 — greedy per score: ufficio ai migliori CHE HANNO ancora budget,
-        //    fino a maxCapacity. Chi ha esaurito il budget va in smart anche se ci
-        //    sarebbe posto (così l'ufficio NON si riempie per forza al massimo e
-        //    tutti maturano il minimo smart).
+        //    Pass 1 — greedy per score: ufficio ai migliori CHE HANNO ancora budget
+        //    SETTIMANALE, fino a maxCapacity. Chi ha già raggiunto il tetto ufficio
+        //    della settimana va in smart anche se ci sarebbe posto (così ogni
+        //    settimana ognuno mescola ufficio e smart, e l'ufficio non si satura).
         const regDecision = new Map<string, ShiftType>();
         for (const user of regularUnlocked) {
-          const used = userOfficeUsed.get(user.id) ?? 0;
-          const budget = userOfficeBudget.get(user.id) ?? 0;
-          if (officeCount < maxCapacity && used < budget) {
+          const used = userOfficeUsedWeek.get(user.id) ?? 0;
+          const presentThisWeek = presentByWeek.get(user.id)?.get(weekOfMonth) ?? 0;
+          const weekBudget = Math.max(0, presentThisWeek - weeklySmartTarget);
+          if (officeCount < maxCapacity && used < weekBudget) {
             regDecision.set(user.id, 'office');
             officeCount++;
-            userOfficeUsed.set(user.id, used + 1);
+            userOfficeUsedWeek.set(user.id, used + 1);
           } else {
             regDecision.set(user.id, 'smartwork');
           }
@@ -430,13 +455,16 @@ export const schedulingAPI = {
         //    qualcuno lo smart minimo. I renounce_smart, assegnati prima, coprono
         //    già il floor quando presenti.
         if (officeCount < minOfficePerDay) {
-          for (const user of regularUnlocked) {
+          // Promuovi preferendo chi ha meno ufficio QUESTA settimana (spread), così
+          // il floor forzato non ricade sempre sulle stesse persone.
+          const promotable = regularUnlocked
+            .filter((u) => regDecision.get(u.id) === 'smartwork')
+            .sort((a, b) => (userOfficeUsedWeek.get(a.id) ?? 0) - (userOfficeUsedWeek.get(b.id) ?? 0));
+          for (const user of promotable) {
             if (officeCount >= minOfficePerDay) break;
-            if (regDecision.get(user.id) === 'smartwork') {
-              regDecision.set(user.id, 'office');
-              officeCount++;
-              userOfficeUsed.set(user.id, (userOfficeUsed.get(user.id) ?? 0) + 1);
-            }
+            regDecision.set(user.id, 'office');
+            officeCount++;
+            userOfficeUsedWeek.set(user.id, (userOfficeUsedWeek.get(user.id) ?? 0) + 1);
           }
         }
 
