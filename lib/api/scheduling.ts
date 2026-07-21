@@ -42,7 +42,12 @@ export const schedulingAPI = {
       // Capienza ufficio giornaliera: floor = ceil(max/3), non deve per forza
       // riempirsi al massimo. Il floor garantisce presenza minima in ufficio;
       // il cap per-persona (presenza - minSmartDays) garantisce lo smart minimo.
-      const minOfficePerDay = Math.max(1, Math.ceil(maxCapacity / 3));
+      // Floor SEMPRE ≥ 1 quando la capienza lo consente: mai ufficio vuoto se c'è
+      // qualcuno assegnabile, ANCHE a costo di togliere a qualcuno lo smart minimo
+      // (pass 2 sfora il budget smart). Con maxCapacity = 0 l'ufficio è chiuso → 0.
+      const minOfficePerDay = maxCapacity >= 1
+        ? Math.min(maxCapacity, Math.max(1, Math.ceil(maxCapacity / 3)))
+        : 0;
       const workDays = await settingsAPI.getWorkDays();
       const holidayDates = await settingsAPI.getHolidayDates();
       const holidaySet = new Set(holidayDates);
@@ -419,9 +424,11 @@ export const schedulingAPI = {
 
         //    Pass 2 — copertura minima: se l'ufficio è sotto il floor, promuovi a
         //    ufficio i regular con score più alto tra quelli in smart (sforando il
-        //    loro budget), finché raggiungi minOfficePerDay o finiscono i candidati.
-        //    Necessario solo quando il pool presente è troppo piccolo per riempire
-        //    il minimo rispettando tutti i budget.
+        //    loro budget smart), finché raggiungi minOfficePerDay o finiscono i
+        //    candidati. Garantisce che se c'è almeno un regular assegnabile ci sia
+        //    ≥ 1 persona in ufficio (floor ≥ 1), ANCHE a costo di non dare a
+        //    qualcuno lo smart minimo. I renounce_smart, assegnati prima, coprono
+        //    già il floor quando presenti.
         if (officeCount < minOfficePerDay) {
           for (const user of regularUnlocked) {
             if (officeCount >= minOfficePerDay) break;
