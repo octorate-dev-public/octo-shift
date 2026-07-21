@@ -251,31 +251,38 @@ export default function Calendar({
     return map;
   }, [workingShifts]);
 
-  // Helper: tally a shift into the right bucket.
+  // Helper: tally a shift into the right bucket — PRESENZA REALE.
   //
-  // Le colonne riassuntive si SOVRAPPONGONO di proposito:
-  //  • Ufficio  → tutti gli shift con shift_type='office'  (anche se c'è un
-  //               permesso/ferie sopra)
-  //  • Smart    → tutti gli shift con shift_type='smartwork' (idem)
-  //  • Ferie    → tutte le assenze (ferie / permesso / malattia), sia come
-  //               leave_type overlay che come shift_type legacy
+  // Ogni persona in un giorno cade in UN SOLO bucket, così le somme
+  // Ufficio+Smart+Ferie == numero di dipendenti (niente doppi conteggi):
+  //  • Ferie   → è assente (ferie/permesso/malattia). NON conta ufficio/smart,
+  //              anche se sotto l'overlay c'è un turno office/smartwork.
+  //  • Ufficio → presente in ufficio (office e nessuna assenza sopra).
+  //  • Smart   → presente in smart (smartwork e nessuna assenza sopra).
   //
-  // Così l'admin sa, per ogni giorno, "se i permessi venissero rimossi quante
-  // persone resterebbero in ufficio e quante in smart". Le somme delle tre
-  // colonne possono superare il numero di dipendenti perché le assenze su
-  // turni reali sono contate due volte (una in Ferie, una nello shift sotto).
+  // Il turno "sotto" un permesso (cosa avrebbe fatto senza assenza) viene
+  // tracciato a parte in `underTotals` e mostrato solo come tooltip.
   const tallyShift = (
     totals: Record<MatrixType, number>,
     s: { shift_type: string; leave_type: string | null },
   ) => {
-    // Conteggio del turno reale sotto (anche se c'è un'assenza sopra)
+    if (isAbsenceShift(s)) {
+      totals.vacation++;
+      return;
+    }
     if (s.shift_type === 'office' || s.shift_type === 'smartwork') {
       totals[s.shift_type as MatrixType]++;
     }
-    // Conteggio dell'assenza nella colonna Ferie
-    if (isAbsenceShift(s)) {
-      totals.vacation++;
-    }
+  };
+
+  // Turni "sotto" le assenze — solo per il tooltip informativo.
+  const tallyUnderLeave = (
+    under: { office: number; smartwork: number },
+    s: { shift_type: string; leave_type: string | null },
+  ) => {
+    if (!isAbsenceShift(s)) return;
+    if (s.shift_type === 'office') under.office++;
+    else if (s.shift_type === 'smartwork') under.smartwork++;
   };
 
   const dateTotals = useMemo(() => {
@@ -287,6 +294,21 @@ export default function Calendar({
         shiftLookup.get(dateStr)?.forEach((s) => tallyShift(totals, s));
       }
       map.set(dateStr, totals);
+    });
+    return map;
+  }, [days, shiftLookup, nonWorkingSet]);
+
+  // Per giorno: quanti dei "Ferie" avevano sotto un turno office/smart.
+  // Serve solo al tooltip (es. "3 in ufficio erano in permesso").
+  const dateUnderLeave = useMemo(() => {
+    const map = new Map<string, { office: number; smartwork: number }>();
+    days.forEach((date) => {
+      const dateStr = localDateStr(date);
+      const under = { office: 0, smartwork: 0 };
+      if (!nonWorkingSet.has(dateStr)) {
+        shiftLookup.get(dateStr)?.forEach((s) => tallyUnderLeave(under, s));
+      }
+      map.set(dateStr, under);
     });
     return map;
   }, [days, shiftLookup, nonWorkingSet]);
@@ -649,17 +671,30 @@ export default function Calendar({
                     })}
 
                     {/* Per-date total cells */}
-                    {MATRIX_TYPES.map((type) => (
-                      <td
-                        key={type}
-                        className="px-2 py-1 text-center font-semibold border-l border-gray-300"
-                        style={{ backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] }}
-                      >
-                        {dTotals[type] > 0 ? dTotals[type] : (
-                          <span className="font-normal" style={{ color: '#d1d5db' }}>—</span>
-                        )}
-                      </td>
-                    ))}
+                    {MATRIX_TYPES.map((type) => {
+                      const under = dateUnderLeave.get(dateStr)!;
+                      const underCount =
+                        type === 'office' ? under.office : type === 'smartwork' ? under.smartwork : 0;
+                      const title =
+                        underCount > 0
+                          ? `${dTotals[type]} presenti in ${MATRIX_LABELS[type].toLowerCase()} + ${underCount} in permesso (turno ${MATRIX_LABELS[type].toLowerCase()} sotto l'assenza)`
+                          : undefined;
+                      return (
+                        <td
+                          key={type}
+                          title={title}
+                          className="px-2 py-1 text-center font-semibold border-l border-gray-300"
+                          style={{ backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] }}
+                        >
+                          {dTotals[type] > 0 ? dTotals[type] : (
+                            <span className="font-normal" style={{ color: '#d1d5db' }}>—</span>
+                          )}
+                          {underCount > 0 && (
+                            <span className="ml-0.5 font-normal opacity-60">({underCount})</span>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
