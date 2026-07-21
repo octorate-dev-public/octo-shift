@@ -219,7 +219,14 @@ export const shiftsAPI = {
   },
 
   async bulkUpsertShifts(
-    shifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type?: LeaveType | null }>,
+    shifts: Array<{
+      user_id: string;
+      shift_date: string;
+      shift_type: ShiftType;
+      leave_type?: LeaveType | null;
+      locked?: boolean;
+      locked_by?: string | null;
+    }>,
   ): Promise<Shift[]> {
     return log.withTiming('bulkUpsertShifts', { count: shifts.length }, async () => {
       if (shifts.length === 0) {
@@ -272,9 +279,19 @@ export const shiftsAPI = {
         const updateResults = await Promise.all(
           batch.map(s => {
             const id = existingMap.get(`${s.user_id}:${s.shift_date}`)!;
+            const patch: Record<string, unknown> = {
+              shift_type: s.shift_type,
+              leave_type: s.leave_type ?? null,
+            };
+            // Aggiorna il flag locked solo se esplicitamente fornito, così i
+            // chiamanti che non lo passano (es. generazione) non lo resettano.
+            if ('locked' in s) {
+              patch.locked = s.locked ?? false;
+              patch.locked_by = s.locked_by ?? null;
+            }
             return supabase
               .from('shifts')
-              .update({ shift_type: s.shift_type, leave_type: s.leave_type ?? null })
+              .update(patch)
               .eq('id', id)
               .select()
               .single();

@@ -11,6 +11,8 @@ import type { SwapCell } from '@/components/Calendar';
 import { useAuth } from '@/lib/useAuth';
 import RulesPanel from '@/components/RulesPanel';
 import type { RulesSection } from '@/components/RulesPanel';
+import ShiftMatrixImportPanel from '@/components/ShiftMatrixImportPanel';
+import { exportShiftMatrix } from '@/lib/shiftMatrixExcel';
 
 const SCHEDULE_RULES: RulesSection[] = [
   {
@@ -95,6 +97,7 @@ export default function SchedulePage() {
   } | null>(null);
   const [kerosError, setKerosError] = useState<string | null>(null);
   const [showKerosModal, setShowKerosModal] = useState(false);
+  const [showImportPanel, setShowImportPanel] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -250,6 +253,23 @@ export default function SchedulePage() {
             <p className="text-gray-600 mt-2">Crea e gestisci lo schedule dei dipendenti</p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Export matrice turni */}
+            <button
+              onClick={() => exportShiftMatrix(users, shifts, year, month + 1)}
+              disabled={shifts.length === 0}
+              title="Esporta la matrice turni del mese in Excel"
+              className="btn-secondary disabled:opacity-50 text-sm"
+            >
+              ⬇️ Esporta
+            </button>
+            {/* Import matrice turni */}
+            <button
+              onClick={() => setShowImportPanel((v) => !v)}
+              title="Importa una matrice turni da Excel (turni bloccati)"
+              className="btn-secondary text-sm"
+            >
+              ⬆️ Importa
+            </button>
             {/* Import KEROS */}
             <button
               onClick={() => { setShowKerosModal(true); handleKerosImport(true); }}
@@ -268,6 +288,16 @@ export default function SchedulePage() {
             </button>
           </div>
         </div>
+
+        {/* Pannello import matrice turni */}
+        {showImportPanel && (
+          <ShiftMatrixImportPanel
+            users={users}
+            currentUserId={userId}
+            onImportDone={loadData}
+            onClose={() => setShowImportPanel(false)}
+          />
+        )}
 
         {/* Pannello regole algoritmo */}
         <RulesPanel label="Come funziona la generazione automatica dello schedule" sections={SCHEDULE_RULES} />

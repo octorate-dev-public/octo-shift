@@ -28,7 +28,7 @@ Pattern App Router: `app/<segment>/page.tsx`. Tutte le UI sono in italiano.
 | Rotta | File | Note |
 |-------|------|------|
 | `/admin` | [/app/admin/page.tsx](../app/admin/page.tsx) | Dashboard. |
-| `/admin/schedule` | [/app/admin/schedule/page.tsx](../app/admin/schedule/page.tsx) | Creazione schedule con drag & drop, generazione, validate, rebalance. |
+| `/admin/schedule` | [/app/admin/schedule/page.tsx](../app/admin/schedule/page.tsx) | Creazione schedule con drag & drop, generazione, validate, rebalance, export/import matrice Excel. |
 | `/admin/users` | [/app/admin/users/page.tsx](../app/admin/users/page.tsx) | Gestione dipendenti. |
 | `/admin/teams` | [/app/admin/teams/page.tsx](../app/admin/teams/page.tsx) | Gestione team. |
 | `/admin/settings` | [/app/admin/settings/page.tsx](../app/admin/settings/page.tsx) | Capienza ufficio, festività, work_days, credenziali KEROS. |
@@ -82,6 +82,7 @@ stato/dati o pattern UI.
 - [`components/Calendar.tsx`](../components/Calendar.tsx) — calendario riusabile (mensile + matrice utenti).
 - [`components/DayShiftPanel.tsx`](../components/DayShiftPanel.tsx) — pannello laterale per modificare un giorno.
 - [`components/DraggableUserList.tsx`](../components/DraggableUserList.tsx) — lista utenti drag-able usata in `/admin/schedule`.
+- [`components/ShiftMatrixImportPanel.tsx`](../components/ShiftMatrixImportPanel.tsx) — import matrice turni da Excel (multi-step: carica → anteprima con scelta giorno di partenza + abbinamento colonne → import come turni **bloccati**). Export via [`lib/shiftMatrixExcel.ts`](../lib/shiftMatrixExcel.ts) (`exportShiftMatrix`). Etichette celle: Ufficio/Smart/Ferie/Perm./Malattia.
 
 ## Hook condiviso
 
