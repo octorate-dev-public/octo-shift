@@ -192,9 +192,24 @@ export default function Calendar({
   }, [days, effectiveWorkDays, holidaySet]);
 
   // Pre-filter shifts to working days only — ensures holidays never appear in counts or display
+  // Quando il chiamante passa la lista utenti (utenti attivi), escludiamo i
+  // turni "orfani" — righe rimaste in DB per risorse disattivate o cancellate.
+  // Senza questo filtro le colonne mostrano solo gli utenti attivi ma i totali
+  // (Ufficio/Smart/Ferie) conteggerebbero anche gli orfani → somme sballate e
+  // bilanciamento apparentemente errato.
+  const allowedUserIds = useMemo(
+    () => (users && users.length > 0 ? new Set(users.map((u) => u.id)) : null),
+    [users],
+  );
+
   const workingShifts = useMemo(
-    () => shifts.filter((s) => !nonWorkingSet.has(s.shift_date)),
-    [shifts, nonWorkingSet],
+    () =>
+      shifts.filter(
+        (s) =>
+          !nonWorkingSet.has(s.shift_date) &&
+          (!allowedUserIds || allowedUserIds.has(s.user_id)),
+      ),
+    [shifts, nonWorkingSet, allowedUserIds],
   );
 
   useEffect(() => {
