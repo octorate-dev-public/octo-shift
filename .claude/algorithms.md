@@ -32,7 +32,7 @@ e si assegna ufficio fino a `max_office_capacity`, il resto va in smart.
 ### Regole hard
 
 1. I `locked` non si toccano mai (vengono solo "letti" per contabilizzarli nella capienza).
-2. Le assenze (`leave_type` non null oppure legacy `shift_type ∈ {sick,vacation,permission}`) **NON** consumano capienza ufficio e sono **escluse** dal pool di equità.
+2. Le assenze (`leave_type` non null oppure legacy `shift_type ∈ {sick,vacation,permission}`) sono **escluse** dal pool di equità. Base sotto l'overlay: le assenze **non-locked** ricevono base `smartwork` (mai `office`), così una revoca del permesso non può mai sfondare la capienza ufficio. **Eccezione**: un `locked` con base `office` consuma capienza **anche** con overlay ferie/permesso (revocabile → posto prenotato).
 3. `renounce_smart = true`: assegnati per primi, sempre ufficio se c'è capienza. Esclusi dalla media di equità.
 4. Giorni non lavorativi (`work_days`/`holiday:*`): solo i `locked` sopravvivono, tutto il resto viene cancellato.
 5. La frazione smart media (target) si calcola SOLO sui regular (non-renouncing) presenti. Si traccia `userWorkedDays` (ufficio+smart, no assenze) per il target proporzionale.

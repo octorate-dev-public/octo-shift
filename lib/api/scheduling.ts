@@ -203,13 +203,15 @@ export const schedulingAPI = {
         });
 
         // 2. Count locked-office shifts toward today's capacity.
-        //    Shifts with a leave overlay (ferie/permessi/malattia) are absences
-        //    and do NOT consume office capacity.
+        //    IMPORTANTE: un locked con base 'office' consuma capienza ANCHE se ha
+        //    un overlay ferie/permesso. I permessi possono essere revocati: se non
+        //    li contassimo, alla revoca l'ufficio sfonderebbe la capienza. Quindi
+        //    prenotiamo comunque il posto.
         let officeCount = 0;
         sortedUsers.forEach((u) => {
           const lockKey = `${u.id}:${dateStr}`;
           const locked = lockedMap.get(lockKey);
-          if (locked && locked.shiftType === 'office' && !locked.leaveType) officeCount++;
+          if (locked && locked.shiftType === 'office') officeCount++;
         });
 
         // 3. Persist locked shifts. Leave days don't count toward smart-day equity.
@@ -240,18 +242,18 @@ export const schedulingAPI = {
         const renouncingUnlocked = workingUnlocked.filter((u) => u.renounce_smart);
         const regularUnlocked = workingUnlocked.filter((u) => !u.renounce_smart);
 
-        // Preserve absence rows without touching office/smart counts.
-        // We keep their previous shift_type if any, otherwise default to smartwork
-        // (purely cosmetic — it does not count toward totals).
+        // Righe di assenza (ferie/permesso/malattia) NON bloccate: la base sotto
+        // l'overlay è SEMPRE 'smartwork', mai 'office'. Motivo: il permesso può
+        // essere revocato; con base smart la revoca non aggiunge mai un posto in
+        // ufficio → capienza sempre rispettata. La base smart dà inoltre credito
+        // smart "equità" mostrato nei totali (giorni smart anche in ferie).
+        // Non tocca i contatori di equità (l'utente è assente).
         for (const user of onLeaveToday) {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
-          const prevType = existingShifts.find(
-            (s) => s.user_id === user.id && s.shift_date === dateStr,
-          )?.shift_type ?? 'smartwork';
           newShifts.push({
             user_id: user.id,
             shift_date: dateStr,
-            shift_type: prevType,
+            shift_type: 'smartwork',
             leave_type: existingLeave,
           });
         }

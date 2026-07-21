@@ -332,6 +332,37 @@ export default function Calendar({
     return totals;
   }, [workingShifts]);
 
+  // Conteggio "equità": office/smart contati sulla BASE sotto l'overlay, quindi
+  // includono anche i giorni sotto ferie/permesso (la base è comunque smart/office).
+  // Serve ai totali per-persona in fondo: mostra quanti smart/ufficio ha "maturato"
+  // uno, ferie incluse, con gli effettivi (presenza reale) tra parentesi.
+  const tallyWithLeave = (
+    totals: Record<MatrixType, number>,
+    s: { shift_type: string; leave_type: string | null },
+  ) => {
+    if (s.shift_type === 'office') totals.office++;
+    else if (s.shift_type === 'smartwork') totals.smartwork++;
+    if (isAbsenceShift(s)) totals.vacation++;
+  };
+
+  const userTotalsWithLeave = useMemo(() => {
+    const map = new Map<string, Record<MatrixType, number>>();
+    matrixUsers.forEach((u) => {
+      const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
+      workingShifts.forEach((s) => {
+        if (s.user_id === u.id) tallyWithLeave(totals, s);
+      });
+      map.set(u.id, totals);
+    });
+    return map;
+  }, [matrixUsers, workingShifts]);
+
+  const grandTotalsWithLeave = useMemo(() => {
+    const totals: Record<MatrixType, number> = { office: 0, smartwork: 0, vacation: 0 };
+    workingShifts.forEach((s) => tallyWithLeave(totals, s));
+    return totals;
+  }, [workingShifts]);
+
   // ── Swap mode handlers ──────────────────────────────────────
   const toggleSwapMode = () => {
     setSwapMode((m) => !m);
@@ -714,27 +745,47 @@ export default function Calendar({
                     Tot. {MATRIX_LABELS[type]}
                   </td>
                   {matrixUsers.map((u) => {
-                    const count = userTotals.get(u.id)?.[type] ?? 0;
+                    // Numero principale = "equità" (include i giorni sotto ferie);
+                    // tra parentesi gli effettivi (presenza reale) quando differiscono.
+                    const eq = userTotalsWithLeave.get(u.id)?.[type] ?? 0;
+                    const eff = userTotals.get(u.id)?.[type] ?? 0;
+                    const showParen = type !== 'vacation' && eq !== eff;
+                    const title = showParen
+                      ? `${eq} ${MATRIX_LABELS[type].toLowerCase()} conteggiando le ferie · effettivi (presenza reale): ${eff}`
+                      : undefined;
                     return (
                       <td
                         key={u.id}
+                        title={title}
                         className="px-1 py-1.5 text-center font-semibold border-r border-gray-100"
-                        style={count > 0 ? { backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] } : undefined}
+                        style={eq > 0 ? { backgroundColor: TOTAL_BG[type], color: TOTAL_TEXT[type] } : undefined}
                       >
-                        {count > 0 ? count : <span style={{ color: '#d1d5db' }}>—</span>}
+                        {eq > 0 ? eq : <span style={{ color: '#d1d5db' }}>—</span>}
+                        {showParen && <span className="ml-0.5 font-normal opacity-60">({eff})</span>}
                       </td>
                     );
                   })}
                   {/* Grand total in the matching column; blank in others */}
-                  {MATRIX_TYPES.map((t) => (
-                    <td
-                      key={t}
-                      className="px-2 py-1.5 text-center font-bold border-l border-gray-300"
-                      style={{ backgroundColor: TOTAL_BG[t], color: TOTAL_TEXT[t] }}
-                    >
-                      {t === type ? grandTotals[type] : ''}
-                    </td>
-                  ))}
+                  {MATRIX_TYPES.map((t) => {
+                    const eq = grandTotalsWithLeave[type];
+                    const eff = grandTotals[type];
+                    const showParen = type !== 'vacation' && eq !== eff;
+                    return (
+                      <td
+                        key={t}
+                        title={t === type && showParen ? `${eq} conteggiando le ferie · effettivi: ${eff}` : undefined}
+                        className="px-2 py-1.5 text-center font-bold border-l border-gray-300"
+                        style={{ backgroundColor: TOTAL_BG[t], color: TOTAL_TEXT[t] }}
+                      >
+                        {t === type ? (
+                          <>
+                            {eq}
+                            {showParen && <span className="ml-0.5 font-normal opacity-60">({eff})</span>}
+                          </>
+                        ) : ''}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
