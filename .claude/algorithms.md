@@ -28,8 +28,12 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 | 6. Random settimanale | `WEEKLY_MIX_JITTER = 0.6` (±0.3) | Seeded su `utente+mese+settimana` (`seededUnit`): stabile entro la settimana, varia tra settimane → ogni tanto composizioni ufficio diverse. Tiebreaker. |
 | 7. Mix anzianità | `SENIORITY_MIX = 0.35` | A parità, alterna per settimana il micro-nudge verso l'ufficio tra metà senior e metà junior (`idx < regularCount/2`) → mescola anziani e giovani. Tiebreaker. |
 
-Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente
-e si assegna ufficio fino a `max_office_capacity`, il resto va in smart.
+Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente.
+Assegnazione ufficio in due passaggi:
+- **Pass 1** — ufficio ai migliori per score **che hanno ancora budget** (`officeBudget = giorni_presente - min_smart_days`), fino a `max_office_capacity`. Chi ha esaurito il budget va in smart anche se c'è posto → l'ufficio NON si riempie per forza al massimo.
+- **Pass 2** — se l'ufficio è sotto il floor `minOfficePerDay = ceil(max/3)`, promuove a ufficio i regular con score più alto tra quelli in smart (sforando il budget) fino al floor.
+
+Quindi la capienza giornaliera ufficio ∈ `[ceil(max/3), max]`, e ogni dipendente ottiene ≥ `min_smart_days` (chiave settings `min_smart_days`, default 8) salvo pool presente troppo piccolo per coprire il floor.
 
 ### Regole hard
 

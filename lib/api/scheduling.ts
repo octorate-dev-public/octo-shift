@@ -26,20 +26,23 @@ function seededUnit(seed: string): number {
 export const schedulingAPI = {
   /**
    * Generate the monthly schedule respecting:
-   *  1. Max office capacity
-   *  2. Locked shifts are never touched
-   *  3. Weekends/holidays → skipped
-   *  4. renounce_smart users → always office first (excluded from equity pool)
-   *  5. Equity-first: users with more accumulated smart days than the running
-   *     average get higher office priority, ensuring equitable distribution
-   *     regardless of daily preferences
-   *  6. Preferences (home/office/indifferent) act as secondary score modifiers
-   *  7. Team meeting days add office priority
-   *  8. Seniority is the final tiebreaker
+   *  1. Office capacity per giorno ∈ [ceil(max/3), max] — NON deve saturare al max
+   *  2. Ogni dipendente ha ≥ minSmartDays giorni smart/mese (cap officeBudget = presenza - minSmartDays)
+   *  3. Locked shifts are never touched
+   *  4. Weekends/holidays → skipped
+   *  5. renounce_smart users → always office first (excluded from equity pool, no smart minimum)
+   *  6. Equity-first: chi ha più smart del proprio target proporzionale va in ufficio
+   *  7. Preferences (home/office/indifferent) act as secondary score modifiers
+   *  8. Team meeting days add office priority; seniority + mix + random settimanale come tiebreaker
    */
   async generateMonthlySchedule(year: number, month: number): Promise<Shift[]> {
     return log.withTiming('generateMonthlySchedule', { year, month }, async () => {
       const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
+      const minSmartDays = await settingsAPI.getMinSmartDays();
+      // Capienza ufficio giornaliera: floor = ceil(max/3), non deve per forza
+      // riempirsi al massimo. Il floor garantisce presenza minima in ufficio;
+      // il cap per-persona (presenza - minSmartDays) garantisce lo smart minimo.
+      const minOfficePerDay = Math.max(1, Math.ceil(maxCapacity / 3));
       const workDays = await settingsAPI.getWorkDays();
       const holidayDates = await settingsAPI.getHolidayDates();
       const holidaySet = new Set(holidayDates);
@@ -186,6 +189,28 @@ export const schedulingAPI = {
         log.info('generateMonthlySchedule', `Rimossi turni su ${nonWorkingDates.length} giorni non lavorativi`);
       }
 
+      // ── Budget ufficio per-persona (garanzia smart minimo) ──────────────
+      // Giorni lavorativi del mese in cui l'utente NON è assente (né leave overlay
+      // né locked-leave). officeBudget = giorni_presente - minSmartDays: è il numero
+      // massimo di giorni ufficio che può fare restando sopra il minimo smart.
+      const nonWorkingSet = new Set(nonWorkingDates);
+      const workingDatesArr = monthDays
+        .map((d) => formatDate(d))
+        .filter((ds) => !nonWorkingSet.has(ds));
+
+      const userOfficeBudget = new Map<string, number>();
+      const userOfficeUsed = new Map<string, number>();
+      sortedUsers.forEach((u) => {
+        let present = 0;
+        for (const ds of workingDatesArr) {
+          const key = `${u.id}:${ds}`;
+          const absent = !!existingLeaveMap.get(key) || !!lockedMap.get(key)?.leaveType;
+          if (!absent) present++;
+        }
+        userOfficeBudget.set(u.id, Math.max(0, present - minSmartDays));
+        userOfficeUsed.set(u.id, 0);
+      });
+
       const newShifts: Array<{ user_id: string; shift_date: string; shift_type: ShiftType; leave_type: LeaveType | null }> = [];
 
       for (const date of monthDays) {
@@ -230,7 +255,10 @@ export const schedulingAPI = {
         sortedUsers.forEach((u) => {
           const lockKey = `${u.id}:${dateStr}`;
           const locked = lockedMap.get(lockKey);
-          if (locked && locked.shiftType === 'office') officeCount++;
+          if (locked && locked.shiftType === 'office') {
+            officeCount++;
+            userOfficeUsed.set(u.id, (userOfficeUsed.get(u.id) ?? 0) + 1);
+          }
         });
 
         // 3. Persist locked shifts. Leave days don't count toward smart-day equity.
@@ -353,29 +381,65 @@ export const schedulingAPI = {
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));
 
-        // 7. Assign renouncing users first (office if capacity, else smart)
+        // 7. Assign renouncing users first (office if capacity, else smart).
+        //    Rinunciano allo smart → nessun budget/minimo smart per loro.
         for (const user of renouncingUnlocked) {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
           const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
           if (type === 'office') {
             officeCount++;
+            userOfficeUsed.set(user.id, (userOfficeUsed.get(user.id) ?? 0) + 1);
           } else {
             // Capacity forced them into smart — still track, but they're outside the equity pool
             userSmartDays.set(user.id, (userSmartDays.get(user.id) ?? 0) + 1);
           }
         }
 
-        // 8. Assign regular users by equity score (top scorers → office)
+        // 8. Assegna i regular con DUE vincoli oltre lo score:
+        //    • cap per-persona: max officeBudget giorni ufficio (garantisce ≥ minSmartDays smart)
+        //    • capienza giornaliera: officeCount ∈ [minOfficePerDay, maxCapacity]
+        //
+        //    Pass 1 — greedy per score: ufficio ai migliori CHE HANNO ancora budget,
+        //    fino a maxCapacity. Chi ha esaurito il budget va in smart anche se ci
+        //    sarebbe posto (così l'ufficio NON si riempie per forza al massimo e
+        //    tutti maturano il minimo smart).
+        const regDecision = new Map<string, ShiftType>();
+        for (const user of regularUnlocked) {
+          const used = userOfficeUsed.get(user.id) ?? 0;
+          const budget = userOfficeBudget.get(user.id) ?? 0;
+          if (officeCount < maxCapacity && used < budget) {
+            regDecision.set(user.id, 'office');
+            officeCount++;
+            userOfficeUsed.set(user.id, used + 1);
+          } else {
+            regDecision.set(user.id, 'smartwork');
+          }
+        }
+
+        //    Pass 2 — copertura minima: se l'ufficio è sotto il floor, promuovi a
+        //    ufficio i regular con score più alto tra quelli in smart (sforando il
+        //    loro budget), finché raggiungi minOfficePerDay o finiscono i candidati.
+        //    Necessario solo quando il pool presente è troppo piccolo per riempire
+        //    il minimo rispettando tutti i budget.
+        if (officeCount < minOfficePerDay) {
+          for (const user of regularUnlocked) {
+            if (officeCount >= minOfficePerDay) break;
+            if (regDecision.get(user.id) === 'smartwork') {
+              regDecision.set(user.id, 'office');
+              officeCount++;
+              userOfficeUsed.set(user.id, (userOfficeUsed.get(user.id) ?? 0) + 1);
+            }
+          }
+        }
+
+        //    Persist + contatori equità/pattern
         for (const user of regularUnlocked) {
           const existingLeave = existingLeaveMap.get(`${user.id}:${dateStr}`) ?? null;
-          const type: ShiftType = officeCount < maxCapacity ? 'office' : 'smartwork';
+          const type = regDecision.get(user.id)!;
           newShifts.push({ user_id: user.id, shift_date: dateStr, shift_type: type, leave_type: existingLeave });
-          // Giorno lavorato (ufficio o smart) → conta per il target proporzionale
           userWorkedDays.set(user.id, (userWorkedDays.get(user.id) ?? 0) + 1);
           if (type === 'office') {
-            officeCount++;
-            // Traccia weekday per utenti 'stable' (usato nelle settimane successive)
             if (user.schedule_style === 'stable') {
               userOfficeWeekdays.get(user.id)?.add(dayOfWeek);
             }

@@ -33,6 +33,7 @@ const DEFAULT_FEEDBACK: CardFeedback = { status: 'idle', message: '' };
 
 export default function AdminSettingsPage() {
   const [maxOfficeCapacity, setMaxOfficeCapacity] = useState(30);
+  const [minSmartDays, setMinSmartDays] = useState(8);
   const [onCallCount, setOnCallCount] = useState(1);
   const [timezone, setTimezone] = useState('Europe/Rome');
   const [workDays, setWorkDays] = useState<string[]>(DEFAULT_WORK_DAYS);
@@ -49,6 +50,7 @@ export default function AdminSettingsPage() {
   const [kerosTestFeedback, setKerosTestFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
 
   const [capacityFeedback, setCapacityFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+  const [minSmartFeedback, setMinSmartFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [onCallFeedback, setOnCallFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [timezoneFeedback, setTimezoneFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [workDaysFeedback, setWorkDaysFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
@@ -66,6 +68,10 @@ export default function AdminSettingsPage() {
       if (data.max_office_capacity) {
         const parsed = parseInt(data.max_office_capacity, 10);
         if (!isNaN(parsed)) setMaxOfficeCapacity(parsed);
+      }
+      if (data.min_smart_days) {
+        const parsed = parseInt(data.min_smart_days, 10);
+        if (!isNaN(parsed)) setMinSmartDays(parsed);
       }
       if (data.on_call_count) {
         const parsed = parseInt(data.on_call_count, 10);
@@ -110,6 +116,9 @@ export default function AdminSettingsPage() {
 
   const handleSaveCapacity = () =>
     saveSetting('max_office_capacity', String(maxOfficeCapacity), setCapacityFeedback);
+
+  const handleSaveMinSmart = () =>
+    saveSetting('min_smart_days', String(minSmartDays), setMinSmartFeedback);
 
   const handleSaveOnCallCount = () =>
     saveSetting('on_call_count', String(onCallCount), setOnCallFeedback);
@@ -299,6 +308,39 @@ export default function AdminSettingsPage() {
               className="w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {capacityFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
+            </button>
+          </div>
+
+          {/* Card: Smart minimo */}
+          <div className="bg-white rounded-lg shadow p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Smart minimo mensile</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Giorni di smart working che ogni dipendente deve avere garantiti nel mese.
+                Limita quanti giorni ufficio può ricevere ciascuno. L&apos;ufficio si riempie
+                al minimo a {Math.max(1, Math.ceil(maxOfficeCapacity / 3))} (⌈capienza/3⌉) e al massimo alla capienza,
+                senza doverla saturare per forza.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Giorni smart minimi / mese
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={minSmartDays}
+                onChange={(e) => setMinSmartDays(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <FeedbackMessage feedback={minSmartFeedback} />
+            <button
+              onClick={handleSaveMinSmart}
+              disabled={minSmartFeedback.status === 'loading'}
+              className="w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {minSmartFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
             </button>
           </div>
 
