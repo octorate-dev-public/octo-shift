@@ -115,3 +115,17 @@ persona assegnata a IERI, non a oggi. Usare `getActiveOnCallDate()` (in
 `formatDate(new Date())` grezzo. Calcola in Europe/Rome (non nel fuso del browser).
 Usato in `app/public-on-call/page.tsx` e `app/on-call/page.tsx` (card "reperibile
 oggi"). Il resto (calendario, prossimo turno, presenze ufficio) resta su oggi reale.
+
+## 17. Reperibilità emergenza (Twilio) + colonna users.phone
+
+Endpoint pubblico `GET /api/emergency/on-call` (in `app/api/emergency/on-call/route.ts`):
+restituisce il reperibile ATTIVO adesso (usa `getActiveOnCallDate`, handoff 09:00) con
+`phone`. JSON piatto di default; `?format=twiml` ritorna TwiML `<Dial>` per Twilio Voice.
+Auth opzionale: se è settata la env `EMERGENCY_ONCALL_TOKEN`, serve `?token=` o header
+`x-emergency-token`; altrimenti è aperto (espone il numero → valuta il token in prod).
+
+La colonna `users.phone` (VARCHAR(30)) è nello schema. `instrumentation.ts` →
+`ensureUserPhoneColumn()` la verifica allo start: la DDL NON è eseguibile dal client
+Supabase, quindi se manca prova l'RPC `exec_sql` e altrimenti logga l'SQL da eseguire
+a mano (`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);`). Il numero si
+imposta da /admin/users (campo Telefono).

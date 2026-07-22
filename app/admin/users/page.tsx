@@ -69,6 +69,7 @@ const USERS_RULES: RulesSection[] = [
 interface UserFormState {
   fullName: string;
   email: string;
+  phone: string;
   password: string;
   role: 'admin' | 'user';
   seniorityDate: string;
@@ -81,6 +82,7 @@ interface UserFormState {
 const emptyForm = (): UserFormState => ({
   fullName: '',
   email: '',
+  phone: '',
   password: '',
   role: 'user',
   seniorityDate: '',
@@ -158,6 +160,7 @@ export default function UsersPage() {
     setForm({
       fullName: user.full_name,
       email: user.email,
+      phone: user.phone ?? '',
       password: '',
       role: user.role,
       seniorityDate: user.seniority_date,
@@ -215,6 +218,7 @@ export default function UsersPage() {
           id: editingId,
           fullName: form.fullName.trim(),
           email: form.email.trim(),
+          phone: form.phone.trim(),
           role: form.role,
           seniorityDate: form.seniorityDate,
           teamIds: form.teamIds,
@@ -226,6 +230,7 @@ export default function UsersPage() {
         await api.post('/api/users', {
           fullName: form.fullName.trim(),
           email: form.email.trim(),
+          phone: form.phone.trim(),
           password: form.password,
           role: form.role,
           seniorityDate: form.seniorityDate,
@@ -351,6 +356,21 @@ export default function UsersPage() {
                   placeholder="mario.rossi@azienda.it"
                   required
                 />
+              </div>
+
+              {/* Telefono (reperibilità/emergenza) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Telefono <span className="text-gray-400 font-normal">(reperibilità)</span>
+                </label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="+39 333 1234567"
+                />
+                <p className="text-xs text-gray-400 mt-1">Formato E.164 consigliato per Twilio (es. +393331234567).</p>
               </div>
 
               {/* Password (only on create) */}

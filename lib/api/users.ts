@@ -11,6 +11,7 @@ function mapUser(raw: any): User {
     team_ids: (raw.user_teams ?? []).map((ut: { team_id: string }) => ut.team_id),
     renounce_smart: raw.renounce_smart ?? false,
     on_call_available: raw.on_call_available ?? true,
+    phone: raw.phone ?? null,
     schedule_style: (raw.schedule_style === 'stable' ? 'stable' : 'random') as 'stable' | 'random',
     skill_roles: Array.isArray(raw.skill_roles) ? raw.skill_roles : [],
   };
@@ -118,6 +119,7 @@ export const usersAPI = {
     role: 'admin' | 'user',
     seniorityDate: string,
     teamIds?: string[],
+    phone?: string | null,
   ): Promise<User> {
     return log.withTiming('createUser', { email, role }, async () => {
       const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
@@ -133,6 +135,7 @@ export const usersAPI = {
           role,
           seniority_date: seniorityDate,
           team_id: teamIds?.[0] ?? null,
+          phone: phone || null,
           password_hash: '',
         })
         .select(USER_SELECT)

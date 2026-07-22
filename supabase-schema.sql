@@ -13,6 +13,7 @@ CREATE TABLE users (
   is_active BOOLEAN DEFAULT true,
   renounce_smart BOOLEAN DEFAULT false, -- true = dipendente rinuncia volontariamente ai giorni smart
   on_call_available BOOLEAN DEFAULT true, -- true = disponibile alla reperibilità
+  phone VARCHAR(30), -- numero da chiamare in reperibilità/emergenza (formato E.164 consigliato, es. +39...)
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -155,3 +156,10 @@ INSERT INTO settings (key, value) VALUES
 -- Aggiunge la colonna leave_note alla tabella shifts (permessi con orario).
 -- ──────────────────────────────────────────────────────────────────────────────
 -- ALTER TABLE shifts ADD COLUMN IF NOT EXISTS leave_note TEXT;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- MIGRATION: numero di telefono per reperibilità/emergenza (Twilio).
+-- L'app tenta di aggiungerla da sola allo start (instrumentation.ts); se non ha
+-- i permessi DDL, eseguire questa riga a mano sulla Supabase SQL Editor.
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);
