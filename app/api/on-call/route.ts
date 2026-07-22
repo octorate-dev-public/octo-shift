@@ -27,6 +27,12 @@ export const GET = withHandler('api/on-call', 'GET', async (req) => {
     return jsonOk(data);
   }
 
+  // Daily: intervallo di date (timeline reperibilità)
+  if (p.has('dailyFrom') && p.has('dailyTo')) {
+    const data = await onCallAPI.getDailyOnCallRange(p.get('dailyFrom')!, p.get('dailyTo')!);
+    return jsonOk(data);
+  }
+
   // Daily: singola data
   if (p.has('dailyDate')) {
     const data = await onCallAPI.getDailyOnCallForDate(p.get('dailyDate')!);

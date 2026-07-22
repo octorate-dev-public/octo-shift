@@ -215,6 +215,21 @@ export const onCallAPI = {
     });
   },
 
+  /** Recupera le assegnazioni giornaliere in un intervallo di date (join con users). */
+  async getDailyOnCallRange(startDate: string, endDate: string): Promise<(OnCallDailyAssignment & { user?: any })[]> {
+    return log.withTiming('getDailyOnCallRange', { startDate, endDate }, async () => {
+      const { data, error } = await supabase
+        .from('on_call_daily_assignments')
+        .select('*, users:user_id(id, full_name, email)')
+        .gte('assignment_date', startDate)
+        .lte('assignment_date', endDate)
+        .order('assignment_date', { ascending: true });
+
+      if (error) throw toAppError(error, 'Impossibile caricare la reperibilità dell\'intervallo');
+      return (data || []).map((item: any) => ({ ...item, user: item.users }));
+    });
+  },
+
   /** Recupera l'assegnazione giornaliera per una data specifica (join con users). */
   async getDailyOnCallForDate(date: string): Promise<(OnCallDailyAssignment & { user?: any }) | null> {
     return log.withTiming('getDailyOnCallForDate', { date }, async () => {

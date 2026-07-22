@@ -19,8 +19,51 @@ interface TeamGroup {
   users: Array<{ id: string; full_name: string }>;
 }
 
+interface DailyRow {
+  assignment_date: string;
+  user_id: string;
+  user: { id: string; full_name: string; email: string } | null;
+}
+
+interface OnCallBlock {
+  userId: string;
+  user: { id: string; full_name: string; email: string } | null;
+  start: string; // primo giorno assegnato (YYYY-MM-DD)
+  end: string;   // ultimo giorno assegnato
+}
+
+/** Aggiunge n giorni a una data YYYY-MM-DD (in UTC, sicuro dal DST). */
+function addDaysStr(ds: string, n: number): string {
+  const d = new Date(ds + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Raggruppa le assegnazioni giornaliere in blocchi contigui dello stesso utente. */
+function buildBlocks(rows: DailyRow[]): OnCallBlock[] {
+  const sorted = [...rows].sort((a, b) => a.assignment_date.localeCompare(b.assignment_date));
+  const blocks: OnCallBlock[] = [];
+  for (const r of sorted) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.userId === r.user_id && addDaysStr(last.end, 1) === r.assignment_date) {
+      last.end = r.assignment_date;
+    } else {
+      blocks.push({ userId: r.user_id, user: r.user, start: r.assignment_date, end: r.assignment_date });
+    }
+  }
+  return blocks;
+}
+
+const dmy = (ds: string) =>
+  new Date(ds + 'T12:00:00Z').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+
+/** Turno reperibilità: 18:00 del primo giorno → 09:00 del giorno DOPO l'ultimo. */
+const blockStartLabel = (b: OnCallBlock) => `${dmy(b.start)} ore 18:00`;
+const blockEndLabel = (b: OnCallBlock) => `${dmy(addDaysStr(b.end, 1))} ore 09:00`;
+
 export default function PublicOnCallPage() {
   const [onCallUsers, setOnCallUsers] = useState<OnCallEntry[]>([]);
+  const [blocks, setBlocks] = useState<OnCallBlock[]>([]);
   const [officeTeams, setOfficeTeams] = useState<TeamGroup[]>([]);
   const [officeTotal, setOfficeTotal] = useState(0);
   const [teamMap, setTeamMap] = useState<Record<string, Team>>({});
@@ -41,9 +84,13 @@ export default function PublicOnCallPage() {
     try {
       setLoading(true);
 
-      // Both requests go through our API routes → server-side logging on Vercel
-      const [onCallData, shiftsData, teamsData] = await Promise.all([
-        api.get<OnCallEntry[]>(`/api/on-call?date=${onCallDateStr}`),
+      // Finestra di giorni attorno alla data attiva per costruire la timeline
+      // (chi prima / ora / dopo). ±40gg copre i blocchi adiacenti.
+      const from = addDaysStr(onCallDateStr, -20);
+      const to = addDaysStr(onCallDateStr, 40);
+
+      const [dailyRange, shiftsData, teamsData] = await Promise.all([
+        api.get<DailyRow[]>(`/api/on-call?dailyFrom=${from}&dailyTo=${to}`),
         api.get<ShiftWithUser[]>(`/api/shifts?date=${todayStr}`),
         api.get<Team[]>('/api/teams'),
       ]);
@@ -52,7 +99,17 @@ export default function PublicOnCallPage() {
       teamsData.forEach((t) => { tMap[t.id] = t; });
       setTeamMap(tMap);
 
-      setOnCallUsers(onCallData);
+      const builtBlocks = buildBlocks(dailyRange ?? []);
+      setBlocks(builtBlocks);
+
+      // Fallback: se non ci sono assegnazioni giornaliere (setup weekly legacy),
+      // usa il vecchio fetch per-data per la card singola.
+      if (builtBlocks.length === 0) {
+        const legacy = await api.get<OnCallEntry[]>(`/api/on-call?date=${onCallDateStr}`);
+        setOnCallUsers(legacy);
+      } else {
+        setOnCallUsers([]);
+      }
 
       // Filter office shifts and group by team — ferie/permessi/malattia
       // non contano come presenze in ufficio
@@ -124,43 +181,84 @@ export default function PublicOnCallPage() {
           </div>
         )}
 
-        {/* Reperibilità */}
+        {/* Reperibilità — timeline prima / ora / dopo */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <span className="text-3xl">📞</span>
-            <h2 className="text-2xl font-bold text-gray-900">Chi è Reperibile</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Reperibilità</h2>
           </div>
 
-          {onCallUsers.length > 0 ? (
-            <div className="space-y-3">
-              {onCallUsers.map((a) => (
-                <div key={a.id} className="bg-white rounded-xl shadow-md p-5 flex items-center gap-4">
-                  <div className="flex-shrink-0 w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 text-white flex items-center justify-center font-bold text-lg">
-                    {a.user ? getInitials(a.user.full_name) : '?'}
+          {(() => {
+            const currentIdx = blocks.findIndex(
+              (b) => b.start <= onCallDateStr && onCallDateStr <= b.end,
+            );
+            if (currentIdx === -1) {
+              // Nessun blocco attivo: fallback legacy oppure vuoto
+              if (onCallUsers.length > 0) {
+                return (
+                  <div className="space-y-3">
+                    {onCallUsers.map((a) => (
+                      <div key={a.id} className="bg-white rounded-xl shadow-md p-5 flex items-center gap-4">
+                        <div className="flex-shrink-0 w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 text-white flex items-center justify-center font-bold text-lg">
+                          {a.user ? getInitials(a.user.full_name) : '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xl font-semibold text-gray-900 truncate">{a.user?.full_name ?? 'Sconosciuto'}</p>
+                          <p className="text-gray-500 text-sm truncate">{a.user?.email ?? '—'}</p>
+                        </div>
+                        <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold whitespace-nowrap">Reperibile</span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xl font-semibold text-gray-900 truncate">
-                      {a.user?.full_name ?? 'Sconosciuto'}
-                    </p>
-                    <p className="text-gray-500 text-sm truncate">{a.user?.email ?? '—'}</p>
-                    <p className="text-gray-400 text-xs mt-1">
-                      {a.week_start_date === a.week_end_date
-                        ? new Date(a.week_start_date + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })
-                        : `dal ${new Date(a.week_start_date + 'T00:00:00').toLocaleDateString('it-IT')} al ${new Date(a.week_end_date + 'T00:00:00').toLocaleDateString('it-IT')}`
-                      }
-                    </p>
-                  </div>
-                  <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold whitespace-nowrap">
-                    Reperibile
-                  </span>
+                );
+              }
+              return (
+                <div className="bg-white rounded-xl shadow-md p-8 text-center text-gray-500">
+                  Nessuna reperibilità pianificata
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-md p-8 text-center text-gray-500">
-              Nessuno è reperibile questa settimana
-            </div>
-          )}
+              );
+            }
+
+            const current = blocks[currentIdx];
+            const prev = currentIdx > 0 ? blocks[currentIdx - 1] : null;
+            const next = currentIdx < blocks.length - 1 ? blocks[currentIdx + 1] : null;
+
+            const SideCard = ({ block, label }: { block: OnCallBlock; label: string }) => (
+              <div className="flex-1 bg-white/70 rounded-xl border border-gray-200 p-4 flex flex-col items-center text-center opacity-90">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">{label}</span>
+                <div className="w-11 h-11 rounded-full bg-gray-300 text-white flex items-center justify-center font-bold text-sm mb-2">
+                  {block.user ? getInitials(block.user.full_name) : '?'}
+                </div>
+                <p className="text-sm font-semibold text-gray-700 truncate max-w-full">{block.user?.full_name ?? 'N/D'}</p>
+                <p className="text-[11px] text-gray-400 mt-1">{dmy(block.start)}–{dmy(addDaysStr(block.end, 1))}</p>
+              </div>
+            );
+
+            return (
+              <div className="flex flex-col sm:flex-row items-stretch gap-3">
+                {prev ? <SideCard block={prev} label="← Prima" /> : <div className="hidden sm:block flex-1" />}
+
+                {/* Ora — in risalto */}
+                <div className="flex-[1.6] bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg p-6 flex flex-col items-center text-center text-white ring-4 ring-green-200">
+                  <span className="text-xs font-bold uppercase tracking-widest bg-white/20 px-3 py-1 rounded-full mb-3">
+                    ● In turno ora
+                  </span>
+                  <div className="w-20 h-20 rounded-full bg-white/25 flex items-center justify-center font-bold text-2xl mb-3">
+                    {current.user ? getInitials(current.user.full_name) : '?'}
+                  </div>
+                  <p className="text-2xl font-bold leading-tight">{current.user?.full_name ?? 'N/D'}</p>
+                  {current.user?.email && <p className="text-sm text-white/80 truncate max-w-full">{current.user.email}</p>}
+                  <div className="mt-3 text-sm bg-white/15 rounded-lg px-4 py-2">
+                    <span className="font-semibold">{blockStartLabel(current)}</span>
+                    <span className="mx-1.5 text-white/70">→</span>
+                    <span className="font-semibold">{blockEndLabel(current)}</span>
+                  </div>
+                </div>
+
+                {next ? <SideCard block={next} label="Dopo →" /> : <div className="hidden sm:block flex-1" />}
+              </div>
+            );
+          })()}
         </section>
 
         {/* In Ufficio Oggi */}
