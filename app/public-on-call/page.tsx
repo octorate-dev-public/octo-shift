@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/fetcher';
-import { formatDate, getInitials, isOfficePresence } from '@/lib/utils';
+import { formatDate, getActiveOnCallDate, getInitials, isOfficePresence } from '@/lib/utils';
 import { ShiftWithUser, Team } from '@/types';
 
 interface OnCallEntry {
@@ -29,6 +29,9 @@ export default function PublicOnCallPage() {
 
   const today = new Date();
   const todayStr = formatDate(today);
+  // La reperibilità in turno adesso: prima delle 09:00 (Rome) è ancora quella
+  // di ieri (turno 18:00 → 09:00 del giorno dopo). I turni ufficio restano su oggi.
+  const onCallDateStr = getActiveOnCallDate();
 
   useEffect(() => {
     loadData();
@@ -40,7 +43,7 @@ export default function PublicOnCallPage() {
 
       // Both requests go through our API routes → server-side logging on Vercel
       const [onCallData, shiftsData, teamsData] = await Promise.all([
-        api.get<OnCallEntry[]>(`/api/on-call?date=${todayStr}`),
+        api.get<OnCallEntry[]>(`/api/on-call?date=${onCallDateStr}`),
         api.get<ShiftWithUser[]>(`/api/shifts?date=${todayStr}`),
         api.get<Team[]>('/api/teams'),
       ]);

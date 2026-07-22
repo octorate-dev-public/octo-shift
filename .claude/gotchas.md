@@ -105,3 +105,13 @@ un'altra via per fare lo swap, replicalo o sposta il check nella funzione RPC.
 
 `rejectSwapRequest` mette status = `'escalated'` (admin decide).
 `adminRejectSwapRequest` è quello che mette davvero `'rejected'`. Non confonderli.
+
+## 16. Reperibilità: turno 18:00 → 09:00, handoff alle 9
+
+Il turno di reperibilità copre 18:00 → 09:00 del giorno dopo (Europe/Rome, vedi
+`app/api/ics/route.ts`). Perciò "chi è reperibile ADESSO" prima delle 09:00 è la
+persona assegnata a IERI, non a oggi. Usare `getActiveOnCallDate()` (in
+`lib/utils.ts`) per il fetch/visualizzazione del reperibile corrente — mai
+`formatDate(new Date())` grezzo. Calcola in Europe/Rome (non nel fuso del browser).
+Usato in `app/public-on-call/page.tsx` e `app/on-call/page.tsx` (card "reperibile
+oggi"). Il resto (calendario, prossimo turno, presenze ufficio) resta su oggi reale.

@@ -17,6 +17,37 @@ export const getMonthDays = (year: number, month: number) => {
   return days;
 };
 
+/**
+ * Data della reperibilità ATTIVA adesso (YYYY-MM-DD, fuso Europe/Rome).
+ * Il turno reperibilità va 18:00 → 09:00 del giorno successivo: prima delle
+ * 09:00 il reperibile in turno è ancora quello del giorno PRECEDENTE. Dopo le
+ * 09:00 è quello del giorno corrente (che inizierà il turno stasera alle 18:00).
+ * Calcolato sempre in Europe/Rome, indipendente dal fuso del browser.
+ */
+export function getActiveOnCallDate(
+  now: Date = new Date(),
+  handoffHour = 9,
+  timeZone = 'Europe/Rome',
+): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const ymd = `${get('year')}-${get('month')}-${get('day')}`;
+  const hour = parseInt(get('hour'), 10) % 24; // alcune impl. danno "24" a mezzanotte
+  if (hour < handoffHour) {
+    const d = new Date(`${ymd}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+  return ymd;
+}
+
 export const formatDate = (date: Date | string): string => {
   if (typeof date === 'string') {
     return date;

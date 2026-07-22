@@ -5,7 +5,7 @@ import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
 import { supabase } from '@/lib/supabase';
 import { OnCallDailyAssignment, User } from '@/types';
-import { formatDate } from '@/lib/utils';
+import { formatDate, getActiveOnCallDate } from '@/lib/utils';
 
 // ─── Costanti ────────────────────────────────────────────────────────────────
 const MESI_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
@@ -124,8 +124,10 @@ export default function OnCallPage() {
     return Array.from(seen.entries()).map(([id, v]) => ({ id, ...v }));
   }, [entries]);
 
-  // ── Chi è di reperibilità oggi ──
-  const todayEntry = entryByDate.get(todayStr);
+  // ── Chi è di reperibilità in turno adesso ──
+  // Turno 18:00 → 09:00 del giorno dopo: prima delle 09:00 (Rome) è ancora la
+  // reperibilità di ieri. Il resto della pagina (calendario, "prossimo") usa oggi.
+  const todayEntry = entryByDate.get(getActiveOnCallDate());
 
   // ── I miei giorni ──
   const myDays = entries.filter(e => e.user_id === currentUserId);
