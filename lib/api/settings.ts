@@ -70,22 +70,22 @@ export const settingsAPI = {
     await this.setSetting('max_office_capacity', capacity.toString());
   },
 
-  async getMinSmartDays(): Promise<number> {
-    const value = await this.getSetting('min_smart_days');
-    const n = value ? parseInt(value, 10) : 8;
+  async getMinSmartPerWeek(): Promise<number> {
+    const value = await this.getSetting('min_smart_per_week');
+    const n = value ? parseInt(value, 10) : 2;
     if (isNaN(n) || n < 0) {
-      log.warn('getMinSmartDays', `Valore non valido "${value}", uso default 8`);
-      return 8;
+      log.warn('getMinSmartPerWeek', `Valore non valido "${value}", uso default 2`);
+      return 2;
     }
     return n;
   },
 
-  async setMinSmartDays(days: number): Promise<void> {
+  async setMinSmartPerWeek(days: number): Promise<void> {
     if (days < 0) {
-      log.warn('setMinSmartDays', `Valore ${days} non valido`);
-      throw toAppError(new Error('Days must be >= 0'), 'I giorni smart minimi non possono essere negativi');
+      log.warn('setMinSmartPerWeek', `Valore ${days} non valido`);
+      throw toAppError(new Error('Days must be >= 0'), 'I giorni smart settimanali minimi non possono essere negativi');
     }
-    await this.setSetting('min_smart_days', days.toString());
+    await this.setSetting('min_smart_per_week', days.toString());
   },
 
   async getOnCallCount(): Promise<number> {

@@ -27,9 +27,9 @@ export const schedulingAPI = {
   /**
    * Generate the monthly schedule respecting:
    *  1. Office capacity per giorno ∈ [ceil(max/3), max] — NON deve saturare al max
-   *  2. Smart distribuito PER SETTIMANA: obiettivo smart/settimana = minSmartDays/settimane;
-   *     cap ufficio settimanale = presenza_settimana - obiettivo → ognuno mescola
-   *     ufficio+smart ogni settimana (niente cluster ufficio-poi-smart)
+   *  2. REGOLA HARD: ogni dipendente ha ≥ minSmartPerWeek giorni smart OGNI settimana
+   *     in cui è presente (o tutti i presenti se meno). Batte ferie/equità → nessuno
+   *     resta in ufficio per settimane intere. cap ufficio sett. = presenza - minSmartPerWeek
    *  3. Locked shifts are never touched
    *  4. Weekends/holidays → skipped
    *  5. renounce_smart users → always office first (excluded from equity pool, no smart minimum)
@@ -40,10 +40,13 @@ export const schedulingAPI = {
   async generateMonthlySchedule(year: number, month: number): Promise<Shift[]> {
     return log.withTiming('generateMonthlySchedule', { year, month }, async () => {
       const maxCapacity = await settingsAPI.getMaxOfficeCapacity();
-      const minSmartDays = await settingsAPI.getMinSmartDays();
+      // REGOLA HARD: ogni settimana ogni dipendente PRESENTE ha ≥ minSmartPerWeek
+      // giorni di smart (o tutti i suoi giorni presenti se ne ha meno). Questa regola
+      // batte l'organizzazione ferie/equità: nessuno resta in ufficio settimane intere.
+      const minSmartPerWeek = await settingsAPI.getMinSmartPerWeek();
       // Capienza ufficio giornaliera: floor = ceil(max/3), non deve per forza
-      // riempirsi al massimo. Il floor garantisce presenza minima in ufficio;
-      // il cap per-persona (presenza - minSmartDays) garantisce lo smart minimo.
+      // riempirsi al massimo. Il cap per-persona (presenza - minSmartPerWeek settimanale)
+      // garantisce lo smart minimo settimanale.
       // Floor SEMPRE ≥ 1 quando la capienza lo consente: mai ufficio vuoto se c'è
       // qualcuno assegnabile, ANCHE a costo di togliere a qualcuno lo smart minimo
       // (pass 2 sfora il budget smart). Con maxCapacity = 0 l'ufficio è chiuso → 0.
@@ -196,11 +199,11 @@ export const schedulingAPI = {
         log.info('generateMonthlySchedule', `Rimossi turni su ${nonWorkingDates.length} giorni non lavorativi`);
       }
 
-      // ── Budget ufficio SETTIMANALE (variabilità + smart minimo) ─────────
+      // ── Budget ufficio SETTIMANALE (variabilità + smart minimo settimanale) ──
       // Il budget è per-settimana, non mensile: così lo smart è distribuito su
       // TUTTE le settimane (niente cluster "ufficio per 3 settimane, poi smart").
-      // Obiettivo smart/settimana = min_smart_days / settimane_del_mese.
-      // Cap ufficio settimanale per persona = presenza_settimana - obiettivo_smart_settimana.
+      // Minimo smart/settimana = min(minSmartPerWeek, presenti_settimana) — regola hard.
+      // Cap ufficio settimanale per persona = presenza_settimana - minimo_smart_settimana.
       const nonWorkingSet = new Set(nonWorkingDates);
       const workingDatesArr = monthDays
         .map((d) => formatDate(d))
@@ -209,16 +212,10 @@ export const schedulingAPI = {
       const weekOf = (ds: string) => Math.ceil(parseInt(ds.slice(8, 10), 10) / 7);
 
       // Presenza per (utente, settimana del mese) — esclude ferie/permessi/malattia.
-      // weekWorkingDays = giorni lavorativi di calendario per settimana (uguale per tutti):
-      // le ferie di un utente in una settimana = weekWorkingDays - presenza.
       const presentByWeek = new Map<string, Map<number, number>>();
       sortedUsers.forEach((u) => presentByWeek.set(u.id, new Map()));
-      const weekWorkingDays = new Map<number, number>();
-      const weekSet = new Set<number>();
       for (const ds of workingDatesArr) {
         const w = weekOf(ds);
-        weekSet.add(w);
-        weekWorkingDays.set(w, (weekWorkingDays.get(w) ?? 0) + 1);
         for (const u of sortedUsers) {
           const key = `${u.id}:${ds}`;
           const absent = !!existingLeaveMap.get(key) || !!lockedMap.get(key)?.leaveType;
@@ -228,11 +225,6 @@ export const schedulingAPI = {
           }
         }
       }
-      const weeksOfMonth = Math.max(1, weekSet.size);
-      // Obiettivo smart-equivalente per settimana (min mensile spalmato). Le FERIE
-      // contano verso questo obiettivo: chi è in ferie ha già "maturato" smart e
-      // non deve rubarne altri ai presenti → i suoi giorni presenti vanno in ufficio.
-      const weeklySmartTarget = Math.max(1, Math.round(minSmartDays / weeksOfMonth));
 
       // Giorni ufficio usati nella settimana corrente (azzerato al cambio settimana).
       const userOfficeUsedWeek = new Map<string, number>();
@@ -436,13 +428,11 @@ export const schedulingAPI = {
         for (const user of regularUnlocked) {
           const used = userOfficeUsedWeek.get(user.id) ?? 0;
           const presentThisWeek = presentByWeek.get(user.id)?.get(weekOfMonth) ?? 0;
-          const workThisWeek = weekWorkingDays.get(weekOfMonth) ?? 0;
-          const ferieThisWeek = Math.max(0, workThisWeek - presentThisWeek);
-          // Smart reali ancora necessari = target meno le ferie (che già contano
-          // come smart). Chi ha molte ferie → neededSmart 0 → budget = tutti i
-          // giorni presenti in ufficio (non accumula smart oltre le ferie).
-          const neededSmart = Math.max(0, weeklySmartTarget - ferieThisWeek);
-          const weekBudget = Math.max(0, presentThisWeek - neededSmart);
+          // Smart minimi garantiti questa settimana = min(minSmartPerWeek, presenti).
+          // Le ferie NON riducono questo minimo: chi è presente in settimana ha
+          // comunque diritto ai suoi giorni smart. Budget ufficio = presenti - minimo.
+          const weekSmartFloor = Math.min(minSmartPerWeek, presentThisWeek);
+          const weekBudget = Math.max(0, presentThisWeek - weekSmartFloor);
           if (officeCount < maxCapacity && used < weekBudget) {
             regDecision.set(user.id, 'office');
             officeCount++;
@@ -513,6 +503,24 @@ export const schedulingAPI = {
           byDate.get(s.shift_date)!.push(s);
         }
 
+        // Smart reali per (utente, settimana): serve a NON scendere mai sotto il
+        // minimo settimanale quando si sposta qualcuno da smart a ufficio.
+        const weekSmartCount = new Map<string, number>();
+        const wkey = (uid: string, ds: string) => `${uid}:${weekOf(ds)}`;
+        for (const s of newShifts) {
+          if (s.shift_type === 'smartwork' && !s.leave_type) {
+            const k = wkey(s.user_id, s.shift_date);
+            weekSmartCount.set(k, (weekSmartCount.get(k) ?? 0) + 1);
+          }
+        }
+        // true se l'utente può cedere uno smart questo giorno restando ≥ minimo settimanale
+        const canGiveSmart = (uid: string, ds: string) => {
+          const w = weekOf(ds);
+          const present = presentByWeek.get(uid)?.get(w) ?? 0;
+          const floor = Math.min(minSmartPerWeek, present);
+          return (weekSmartCount.get(`${uid}:${w}`) ?? 0) - 1 >= floor;
+        };
+
         const movable = (e: (typeof newShifts)[number]) =>
           regularIds.has(e.user_id) &&
           !e.leave_type &&
@@ -524,14 +532,16 @@ export const schedulingAPI = {
           improved = false;
           for (const [dateStr, entries] of byDate) {
             const meet = meetingByDate.get(dateStr) ?? new Set<string>();
-            // Candidato A: in ufficio, spostabile, senza riunione, con se più basso
+            // A: in ufficio, spostabile, senza riunione, se più basso → riceve smart
+            // B: in smart, spostabile, se più alto, MA solo se cedendo lo smart resta
+            //    sopra il minimo settimanale (la regola hard batte l'equalizzazione).
             let A: (typeof newShifts)[number] | null = null;
             let B: (typeof newShifts)[number] | null = null;
             for (const e of entries) {
               if (!movable(e)) continue;
               if (e.shift_type === 'office' && !meet.has(e.user_id)) {
                 if (!A || se.get(e.user_id)! < se.get(A.user_id)!) A = e;
-              } else if (e.shift_type === 'smartwork') {
+              } else if (e.shift_type === 'smartwork' && canGiveSmart(e.user_id, dateStr)) {
                 if (!B || se.get(e.user_id)! > se.get(B.user_id)!) B = e;
               }
             }
@@ -540,6 +550,8 @@ export const schedulingAPI = {
               B.shift_type = 'office';
               se.set(A.user_id, se.get(A.user_id)! + 1);
               se.set(B.user_id, se.get(B.user_id)! - 1);
+              weekSmartCount.set(wkey(A.user_id, dateStr), (weekSmartCount.get(wkey(A.user_id, dateStr)) ?? 0) + 1);
+              weekSmartCount.set(wkey(B.user_id, dateStr), (weekSmartCount.get(wkey(B.user_id, dateStr)) ?? 0) - 1);
               improved = true;
             }
           }
