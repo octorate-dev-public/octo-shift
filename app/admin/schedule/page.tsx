@@ -150,6 +150,37 @@ export default function SchedulePage() {
     await loadData();
   };
 
+  const handleUnlockShift = async (userId: string, shiftDate: string) => {
+    await api.patch('/api/shifts', { userId, shiftDate, action: 'unlock' });
+    await loadData();
+  };
+
+  const handleUnlockDay = async (shiftDate: string) => {
+    await api.patch('/api/shifts', { shiftDate, action: 'unlockDay' });
+    await loadData();
+  };
+
+  const handleUnlockMonth = async () => {
+    const label = new Date(year, month).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+    if (!window.confirm(`Sbloccare TUTTI i turni bloccati di ${label}? La rigenerazione potrà poi modificarli.`)) return;
+    const res = await api.patch<{ unlocked: number }>('/api/shifts', { action: 'unlockMonth', year, month: month + 1 });
+    await loadData();
+    window.alert(`Sbloccati ${res.unlocked} turni.`);
+  };
+
+  const handleLockDay = async (shiftDate: string) => {
+    await api.patch('/api/shifts', { shiftDate, action: 'lockDay', lockedBy: userId });
+    await loadData();
+  };
+
+  const handleLockMonth = async () => {
+    const label = new Date(year, month).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+    if (!window.confirm(`Bloccare TUTTI i turni di ${label}? La rigenerazione non li modificherà più.`)) return;
+    const res = await api.patch<{ locked: number }>('/api/shifts', { action: 'lockMonth', year, month: month + 1, lockedBy: userId });
+    await loadData();
+    window.alert(`Bloccati ${res.locked} turni.`);
+  };
+
   const handleSwapShifts = async (a: SwapCell, b: SwapCell) => {
     const tasks: Promise<any>[] = [];
 
@@ -272,6 +303,23 @@ export default function SchedulePage() {
               className="btn-secondary text-sm"
             >
               ⬆️ Importa
+            </button>
+            {/* Blocca / Sblocca intero mese */}
+            <button
+              onClick={handleLockMonth}
+              disabled={shifts.length === 0}
+              title="Blocca tutti i turni del mese (la rigenerazione non li tocca)"
+              className="btn-secondary disabled:opacity-50 text-sm"
+            >
+              🔒 Blocca mese
+            </button>
+            <button
+              onClick={handleUnlockMonth}
+              disabled={shifts.length === 0}
+              title="Sblocca tutti i turni del mese"
+              className="btn-secondary disabled:opacity-50 text-sm"
+            >
+              🔓 Sblocca mese
             </button>
             {/* Import KEROS */}
             <button
@@ -442,6 +490,9 @@ export default function SchedulePage() {
         onShiftChange={handleShiftChange}
         onLeaveChange={handleLeaveChange}
         onToggleHoliday={handleToggleHoliday}
+        onUnlockShift={handleUnlockShift}
+        onUnlockDay={handleUnlockDay}
+        onLockDay={handleLockDay}
       />
 
       {/* ── Modale KEROS ── */}

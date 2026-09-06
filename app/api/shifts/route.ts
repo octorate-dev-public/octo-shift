@@ -65,6 +65,8 @@ export const POST = withHandler('api/shifts', 'POST', async (req) => {
 
 /**
  * PATCH /api/shifts  { userId, shiftDate, action: 'lock' | 'unlock' | 'setLeave', lockedBy?, leaveType? }
+ * PATCH /api/shifts  { shiftDate, action: 'lockDay' | 'unlockDay', lockedBy? }        → blocca/sblocca tutto il giorno
+ * PATCH /api/shifts  { year, month, action: 'lockMonth' | 'unlockMonth', lockedBy? }  → blocca/sblocca tutto il mese
  */
 export const PATCH = withHandler('api/shifts', 'PATCH', async (req) => {
   const body = await parseBody(req);
@@ -78,6 +80,26 @@ export const PATCH = withHandler('api/shifts', 'PATCH', async (req) => {
   if (action === 'unlock') {
     const shift = await shiftsAPI.unlockShift(userId, shiftDate);
     return jsonOk(shift);
+  }
+
+  if (action === 'unlockDay') {
+    const count = await shiftsAPI.unlockDay(shiftDate);
+    return jsonOk({ unlocked: count });
+  }
+
+  if (action === 'unlockMonth') {
+    const count = await shiftsAPI.unlockMonth(body.year, body.month);
+    return jsonOk({ unlocked: count });
+  }
+
+  if (action === 'lockDay') {
+    const count = await shiftsAPI.lockDay(shiftDate, lockedBy ?? null);
+    return jsonOk({ locked: count });
+  }
+
+  if (action === 'lockMonth') {
+    const count = await shiftsAPI.lockMonth(body.year, body.month, lockedBy ?? null);
+    return jsonOk({ locked: count });
   }
 
   if (action === 'setLeave') {

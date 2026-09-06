@@ -22,6 +22,9 @@ interface DayShiftPanelProps {
   onShiftChange: (userId: string, date: string, newType: 'office' | 'smartwork') => Promise<void>;
   onLeaveChange?: (userId: string, date: string, leaveType: LeaveType | null) => Promise<void>;
   onToggleHoliday?: (date: string) => Promise<void>;
+  onUnlockShift?: (userId: string, date: string) => Promise<void>;
+  onUnlockDay?: (date: string) => Promise<void>;
+  onLockDay?: (date: string) => Promise<void>;
 }
 
 const ITALIAN_DAYS = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
@@ -51,13 +54,39 @@ export default function DayShiftPanel({
   onShiftChange,
   onLeaveChange,
   onToggleHoliday,
+  onUnlockShift,
+  onUnlockDay,
+  onLockDay,
 }: DayShiftPanelProps) {
   const [loadingUsers, setLoadingUsers] = useState<Set<string>>(new Set());
   const [holidayLoading, setHolidayLoading] = useState(false);
+  const [lockBusy, setLockBusy] = useState(false);
 
   if (!date) return null;
 
   const dayShifts = shifts.filter((s) => s.shift_date === date);
+  const lockedCount = dayShifts.filter((s) => s.locked).length;
+
+  const handleUnlockSingle = async (userId: string) => {
+    if (!onUnlockShift || !date) return;
+    setLoadingUsers((prev) => new Set(prev).add(userId));
+    try {
+      await onUnlockShift(userId, date);
+    } finally {
+      setLoadingUsers((prev) => { const n = new Set(prev); n.delete(userId); return n; });
+    }
+  };
+
+  const handleLockDayClick = async () => {
+    if (!date) return;
+    setLockBusy(true);
+    try {
+      if (lockedCount > 0 && onUnlockDay) await onUnlockDay(date);
+      else if (lockedCount === 0 && onLockDay) await onLockDay(date);
+    } finally {
+      setLockBusy(false);
+    }
+  };
 
   // Absences (ferie / permessi / malattia) are NOT counted toward office or
   // smartwork totals, regardless of whether they are modeled as a leave_type
@@ -229,6 +258,25 @@ export default function DayShiftPanel({
                 : 'Segna come giorno non lavorativo'}
             </button>
           )}
+
+          {/* Blocca / Sblocca intero giorno */}
+          {(onLockDay || onUnlockDay) && dayShifts.length > 0 && (
+            <button
+              onClick={handleLockDayClick}
+              disabled={lockBusy}
+              className={`mt-2 w-full text-xs font-medium py-1.5 px-3 rounded-lg border transition-colors disabled:opacity-50 ${
+                lockedCount > 0
+                  ? 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                  : 'text-gray-700 bg-gray-50 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              {lockBusy
+                ? 'Aggiornamento...'
+                : lockedCount > 0
+                ? `🔓 Sblocca giorno (${lockedCount} bloccati)`
+                : '🔒 Blocca giorno'}
+            </button>
+          )}
         </div>
 
         {/* Capacity bar */}
@@ -277,7 +325,20 @@ export default function DayShiftPanel({
                         </span>
                         {shift.leave_type && <LeaveBadge shift={shift} />}
                       </div>
-                      {shift.locked && <LockIcon />}
+                      {shift.locked && (
+                        onUnlockShift ? (
+                          <button
+                            onClick={() => handleUnlockSingle(shift.user_id)}
+                            disabled={isLoading}
+                            title="Bloccato — clicca per sbloccare"
+                            className="flex-shrink-0 text-gray-400 hover:text-blue-600 disabled:opacity-40"
+                          >
+                            <LockIcon />
+                          </button>
+                        ) : (
+                          <LockIcon />
+                        )
+                      )}
                       <LeaveDropdown shift={shift} />
                       <button
                         onClick={() => handleChange(shift.user_id, 'smartwork')}
@@ -320,7 +381,20 @@ export default function DayShiftPanel({
                         </span>
                         {shift.leave_type && <LeaveBadge shift={shift} />}
                       </div>
-                      {shift.locked && <LockIcon />}
+                      {shift.locked && (
+                        onUnlockShift ? (
+                          <button
+                            onClick={() => handleUnlockSingle(shift.user_id)}
+                            disabled={isLoading}
+                            title="Bloccato — clicca per sbloccare"
+                            className="flex-shrink-0 text-gray-400 hover:text-blue-600 disabled:opacity-40"
+                          >
+                            <LockIcon />
+                          </button>
+                        ) : (
+                          <LockIcon />
+                        )
+                      )}
                       <LeaveDropdown shift={shift} />
                       <button
                         onClick={() => handleChange(shift.user_id, 'office')}

@@ -129,3 +129,12 @@ La colonna `users.phone` (VARCHAR(30)) è nello schema. `instrumentation.ts` →
 Supabase, quindi se manca prova l'RPC `exec_sql` e altrimenti logga l'SQL da eseguire
 a mano (`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);`). Il numero si
 imposta da /admin/users (campo Telefono).
+
+## 18. Blocca/sblocca giorno e mese
+
+Oltre al lock/unlock per-cella (`lockShift`/`unlockShift`), ci sono ora azioni bulk in
+`shiftsAPI`: `lockDay/unlockDay(date)` e `lockMonth/unlockMonth(year, month)` (month 1-based),
+esposte via PATCH /api/shifts con `action: 'lockDay'|'unlockDay'|'lockMonth'|'unlockMonth'`
+(lock passa `lockedBy`). UI in /admin/schedule: bottoni "🔒 Blocca mese"/"🔓 Sblocca mese"
+in toolbar (con conferma), e nel DayShiftPanel bottone giorno + 🔒 per-cella cliccabile per
+sbloccare la singola. Le bulk toccano solo i turni con `locked` opposto (idempotenti).

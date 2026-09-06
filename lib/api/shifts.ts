@@ -350,6 +350,84 @@ export const shiftsAPI = {
     });
   },
 
+  /** Blocca TUTTI i turni di una data. Ritorna il numero di turni bloccati. */
+  async lockDay(shiftDate: string, lockedBy: string | null): Promise<number> {
+    return log.withTiming('lockDay', { shiftDate }, async () => {
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ locked: true, locked_by: lockedBy })
+        .eq('shift_date', shiftDate)
+        .eq('locked', false)
+        .select('id');
+
+      if (error) throw toAppError(error, 'Impossibile bloccare il giorno');
+      const n = (data || []).length;
+      log.info('lockDay', `Bloccati ${n} turni`, { shiftDate });
+      return n;
+    });
+  },
+
+  /** Blocca TUTTI i turni di un mese (1-based). Ritorna il numero di turni bloccati. */
+  async lockMonth(year: number, month: number, lockedBy: string | null): Promise<number> {
+    return log.withTiming('lockMonth', { year, month }, async () => {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ locked: true, locked_by: lockedBy })
+        .gte('shift_date', startDate)
+        .lte('shift_date', endDate)
+        .eq('locked', false)
+        .select('id');
+
+      if (error) throw toAppError(error, 'Impossibile bloccare il mese');
+      const n = (data || []).length;
+      log.info('lockMonth', `Bloccati ${n} turni`, { year, month });
+      return n;
+    });
+  },
+
+  /** Sblocca TUTTI i turni di una data. Ritorna il numero di turni sbloccati. */
+  async unlockDay(shiftDate: string): Promise<number> {
+    return log.withTiming('unlockDay', { shiftDate }, async () => {
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ locked: false, locked_by: null })
+        .eq('shift_date', shiftDate)
+        .eq('locked', true)
+        .select('id');
+
+      if (error) throw toAppError(error, 'Impossibile sbloccare il giorno');
+      const n = (data || []).length;
+      log.info('unlockDay', `Sbloccati ${n} turni`, { shiftDate });
+      return n;
+    });
+  },
+
+  /** Sblocca TUTTI i turni di un mese (1-based). Ritorna il numero di turni sbloccati. */
+  async unlockMonth(year: number, month: number): Promise<number> {
+    return log.withTiming('unlockMonth', { year, month }, async () => {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('shifts')
+        .update({ locked: false, locked_by: null })
+        .gte('shift_date', startDate)
+        .lte('shift_date', endDate)
+        .eq('locked', true)
+        .select('id');
+
+      if (error) throw toAppError(error, 'Impossibile sbloccare il mese');
+      const n = (data || []).length;
+      log.info('unlockMonth', `Sbloccati ${n} turni`, { year, month });
+      return n;
+    });
+  },
+
   async getOfficeCountForDate(date: string): Promise<number> {
     return log.withTiming('getOfficeCountForDate', { date }, async () => {
       // Absences (ferie / permessi / malattia) — whether expressed as a
