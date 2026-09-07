@@ -353,6 +353,8 @@ export async function syncFerie(): Promise<{ created: number; updated: number; d
       start: { date: d.startDate },
       end: { date: d.endDate },
       transparency: 'transparent',
+      // niente notifiche: override esplicito → ignora i promemoria di default del calendario
+      reminders: { useDefault: false, overrides: [] },
       extendedProperties: { private: { [TAG_KEY]: TAG_VAL, octoshiftKey: key } },
     };
     const ev = existing.get(key);
