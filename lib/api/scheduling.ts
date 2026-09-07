@@ -147,8 +147,10 @@ export const schedulingAPI = {
       //  3. SENIORITY   → i più senior hanno priorità ufficio a parità di equity
       //  4. PREFERENZA  → home/office/indifferente (seconda-scelta giornaliera)
       //  5. STILE       → stable/random (tono fine, non deve battere i precedenti)
-      //  6. RANDOM SETT.→ jitter per settimana del mese (±0.3): ogni tanto pairing diversi
-      //  7. MIX ANZIAN. → micro-nudge alternato senior/junior per settimana (mescola le età)
+      //  6. GIORNO SMART PREFERITO → spinge verso lo smart nel giorno scelto dal dipendente
+      //  7. DISTANZA    → a parità di preferenza, chi ha tragitto più lungo va più in smart
+      //  8. RANDOM SETT.→ jitter per settimana del mese (±0.3): ogni tanto pairing diversi
+      //  9. MIX ANZIAN. → micro-nudge alternato senior/junior per settimana (mescola le età)
       //
       // Esempio: Devin (senior, riunione giovedì, preferenza stabile) deve
       // andare in ufficio giovedì ANCHE se il suo pattern stabile dice smart.
@@ -164,6 +166,9 @@ export const schedulingAPI = {
       const RANDOM_JITTER        = 0.5; // ±0.25: variazione visibile ma subordinata a tutto
       const WEEKLY_MIX_JITTER    = 0.6; // ±0.3: random dipendente dalla settimana del mese → ogni tanto composizioni ufficio diverse
       const SENIORITY_MIX        = 0.35; // a parità, alterna il micro-nudge senior/junior per settimana → mescola anziani e giovani
+      const SMART_DAY_PREF       = 2.5; // giorno smart preferito → spinge verso lo smart quel giorno
+      const COMMUTE_WEIGHT       = 1.0; // distanza dal lavoro (tempo): più lontano → più smart. Tiebreaker sotto la preferenza giorno
+      const COMMUTE_CAP_MIN      = 90;  // minuti oltre i quali il peso distanza è saturo (fattore 0..1)
 
       // Numero di utenti regular per normalizzare la seniority
       const regularCount = sortedUsers.filter(u => !u.renounce_smart).length || 1;
@@ -395,7 +400,15 @@ export const schedulingAPI = {
           const isSenior = idx < regularCount / 2;
           const seniorityMix = ((weekOfMonth % 2 === 0) === isSenior) ? SENIORITY_MIX : 0;
 
-          return equityScore + meetingBonus + seniorityScore + prefScore + styleScore + weeklyMix + seniorityMix;
+          // 6+7. GIORNO SMART PREFERITO + DISTANZA (spingono verso lo SMART → sottraggono
+          //      allo score ufficio). Il giorno preferito pesa di più; a parità la distanza
+          //      (tempo di percorrenza) fa da tiebreaker: più lontano → più smart.
+          const smartDayPref = user.preferred_smart_day === dayName ? SMART_DAY_PREF : 0;
+          const commuteFactor = Math.min(user.commute_minutes ?? 0, COMMUTE_CAP_MIN) / COMMUTE_CAP_MIN;
+          const commuteBias = commuteFactor * COMMUTE_WEIGHT;
+
+          return equityScore + meetingBonus + seniorityScore + prefScore + styleScore
+            + weeklyMix + seniorityMix - smartDayPref - commuteBias;
         };
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));

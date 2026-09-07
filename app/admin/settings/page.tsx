@@ -34,6 +34,7 @@ const DEFAULT_FEEDBACK: CardFeedback = { status: 'idle', message: '' };
 export default function AdminSettingsPage() {
   const [maxOfficeCapacity, setMaxOfficeCapacity] = useState(30);
   const [minSmartPerWeek, setMinSmartPerWeek] = useState(2);
+  const [officeAddress, setOfficeAddress] = useState('Via Filippo Caruso 23, Roma, Italia');
   const [onCallCount, setOnCallCount] = useState(1);
   const [timezone, setTimezone] = useState('Europe/Rome');
   const [workDays, setWorkDays] = useState<string[]>(DEFAULT_WORK_DAYS);
@@ -51,6 +52,7 @@ export default function AdminSettingsPage() {
 
   const [capacityFeedback, setCapacityFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [minSmartFeedback, setMinSmartFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
+  const [officeAddressFeedback, setOfficeAddressFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [onCallFeedback, setOnCallFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [timezoneFeedback, setTimezoneFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
   const [workDaysFeedback, setWorkDaysFeedback] = useState<CardFeedback>(DEFAULT_FEEDBACK);
@@ -73,6 +75,7 @@ export default function AdminSettingsPage() {
         const parsed = parseInt(data.min_smart_per_week, 10);
         if (!isNaN(parsed)) setMinSmartPerWeek(parsed);
       }
+      if (data.office_address) setOfficeAddress(data.office_address);
       if (data.on_call_count) {
         const parsed = parseInt(data.on_call_count, 10);
         if (!isNaN(parsed)) setOnCallCount(parsed);
@@ -119,6 +122,9 @@ export default function AdminSettingsPage() {
 
   const handleSaveMinSmart = () =>
     saveSetting('min_smart_per_week', String(minSmartPerWeek), setMinSmartFeedback);
+
+  const handleSaveOfficeAddress = () =>
+    saveSetting('office_address', officeAddress.trim(), setOfficeAddressFeedback);
 
   const handleSaveOnCallCount = () =>
     saveSetting('on_call_count', String(onCallCount), setOnCallFeedback);
@@ -308,6 +314,35 @@ export default function AdminSettingsPage() {
               className="w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {capacityFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
+            </button>
+          </div>
+
+          {/* Card: Indirizzo ufficio */}
+          <div className="bg-white rounded-lg shadow p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Indirizzo ufficio</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Destinazione per il calcolo della distanza casa→lavoro (Google Distance Matrix).
+                Richiede la chiave <code>GOOGLE_MAPS_API_KEY</code> configurata sul server.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Indirizzo</label>
+              <input
+                type="text"
+                value={officeAddress}
+                onChange={(e) => setOfficeAddress(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="Via Filippo Caruso 23, Roma, Italia"
+              />
+            </div>
+            <FeedbackMessage feedback={officeAddressFeedback} />
+            <button
+              onClick={handleSaveOfficeAddress}
+              disabled={officeAddressFeedback.status === 'loading'}
+              className="w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {officeAddressFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
             </button>
           </div>
 

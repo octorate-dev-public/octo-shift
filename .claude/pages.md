@@ -17,6 +17,7 @@ Pattern App Router: `app/<segment>/page.tsx`. Tutte le UI sono in italiano.
 | Rotta | File | Note |
 |-------|------|------|
 | `/schedule` | [/app/schedule/page.tsx](../app/schedule/page.tsx) | Schedule personale + auto-richiesta swap su altri utenti. |
+| `/profile` | [/app/profile/page.tsx](../app/profile/page.tsx) | Profilo self-service: indirizzo casa + "Calcola distanza" (POST `/api/distance`, Google Distance Matrix), giorno smart preferito, telefono, stile distribuzione. Modifica solo il proprio utente. |
 | `/preferences` | [/app/preferences/page.tsx](../app/preferences/page.tsx) | Home/Office/Indifferente giorno per giorno. Deadline configurabile. |
 | `/swaps` | [/app/swaps/page.tsx](../app/swaps/page.tsx) | Le mie richieste di scambio (creare/accettare/rifiutare). |
 | `/leave` | [/app/leave/page.tsx](../app/leave/page.tsx) | Ferie e permessi personali. |

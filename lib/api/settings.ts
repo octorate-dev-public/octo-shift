@@ -70,6 +70,15 @@ export const settingsAPI = {
     await this.setSetting('max_office_capacity', capacity.toString());
   },
 
+  async getOfficeAddress(): Promise<string> {
+    const value = await this.getSetting('office_address');
+    return value && value.trim() ? value : 'Via Filippo Caruso 23, Roma, Italia';
+  },
+
+  async setOfficeAddress(address: string): Promise<void> {
+    await this.setSetting('office_address', address);
+  },
+
   async getMinSmartPerWeek(): Promise<number> {
     const value = await this.getSetting('min_smart_per_week');
     const n = value ? parseInt(value, 10) : 2;

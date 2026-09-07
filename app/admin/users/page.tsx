@@ -70,6 +70,8 @@ interface UserFormState {
   fullName: string;
   email: string;
   phone: string;
+  workAddress: string;
+  preferredSmartDay: string;
   password: string;
   role: 'admin' | 'user';
   seniorityDate: string;
@@ -79,10 +81,20 @@ interface UserFormState {
   skillRoles: string[];
 }
 
+const WEEKDAYS: Array<{ value: string; label: string }> = [
+  { value: 'monday', label: 'Lunedì' },
+  { value: 'tuesday', label: 'Martedì' },
+  { value: 'wednesday', label: 'Mercoledì' },
+  { value: 'thursday', label: 'Giovedì' },
+  { value: 'friday', label: 'Venerdì' },
+];
+
 const emptyForm = (): UserFormState => ({
   fullName: '',
   email: '',
   phone: '',
+  workAddress: '',
+  preferredSmartDay: '',
   password: '',
   role: 'user',
   seniorityDate: '',
@@ -161,6 +173,8 @@ export default function UsersPage() {
       fullName: user.full_name,
       email: user.email,
       phone: user.phone ?? '',
+      workAddress: user.work_address ?? '',
+      preferredSmartDay: user.preferred_smart_day ?? '',
       password: '',
       role: user.role,
       seniorityDate: user.seniority_date,
@@ -219,6 +233,8 @@ export default function UsersPage() {
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           phone: form.phone.trim(),
+          workAddress: form.workAddress.trim(),
+          preferredSmartDay: form.preferredSmartDay,
           role: form.role,
           seniorityDate: form.seniorityDate,
           teamIds: form.teamIds,
@@ -371,6 +387,40 @@ export default function UsersPage() {
                   placeholder="+39 333 1234567"
                 />
                 <p className="text-xs text-gray-400 mt-1">Formato E.164 consigliato per Twilio (es. +393331234567).</p>
+              </div>
+
+              {/* Giorno smart preferito */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Giorno smart preferito
+                </label>
+                <select
+                  value={form.preferredSmartDay}
+                  onChange={(e) => setForm({ ...form, preferredSmartDay: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Nessuna —</option>
+                  {WEEKDAYS.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Indirizzo di casa (distanza dal lavoro) */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Indirizzo di casa <span className="text-gray-400 font-normal">(distanza dal lavoro)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.workAddress}
+                  onChange={(e) => setForm({ ...form, workAddress: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Es. Via Roma 1, Milano"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Il tempo di percorrenza si calcola dal profilo del dipendente (pulsante &quot;Calcola distanza&quot;).
+                </p>
               </div>
 
               {/* Password (only on create) */}

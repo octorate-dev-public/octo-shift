@@ -14,6 +14,9 @@ CREATE TABLE users (
   renounce_smart BOOLEAN DEFAULT false, -- true = dipendente rinuncia volontariamente ai giorni smart
   on_call_available BOOLEAN DEFAULT true, -- true = disponibile alla reperibilità
   phone VARCHAR(30), -- numero da chiamare in reperibilità/emergenza (formato E.164 consigliato, es. +39...)
+  work_address VARCHAR(255), -- indirizzo/città di casa del dipendente (origine per la distanza dal lavoro)
+  commute_minutes INTEGER, -- tempo di percorrenza casa→ufficio in minuti (Google Distance Matrix)
+  preferred_smart_day VARCHAR(10), -- giorno smart preferito: 'monday'..'friday' (una sola preferenza)
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -163,3 +166,12 @@ INSERT INTO settings (key, value) VALUES
 -- i permessi DDL, eseguire questa riga a mano sulla Supabase SQL Editor.
 -- ──────────────────────────────────────────────────────────────────────────────
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- MIGRATION: distanza dal lavoro + giorno smart preferito.
+-- L'app tenta di aggiungerle da sola allo start (instrumentation.ts); se non ha
+-- i permessi DDL, eseguire queste righe a mano sulla Supabase SQL Editor.
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address VARCHAR(255);
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS commute_minutes INTEGER;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_smart_day VARCHAR(10);

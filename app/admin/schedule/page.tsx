@@ -64,6 +64,15 @@ const SCHEDULE_RULES: RulesSection[] = [
     ],
   },
   {
+    icon: '🏠',
+    title: 'Giorno smart preferito & distanza',
+    items: [
+      'Ogni dipendente può indicare 1 giorno smart preferito (dal proprio profilo): quel giorno riceve una spinta verso lo smart (+2.5).',
+      'La distanza dal lavoro (tempo di percorrenza in auto) pesa a parità di preferenza: chi ha il tragitto più lungo va più volentieri in smart (fino a ~1 punto, saturato a 90 min).',
+      'Restano subordinati ai minimi in ufficio e al minimo smart settimanale: sono preferenze, non vincoli.',
+    ],
+  },
+  {
     icon: '🔒',
     title: 'Turni bloccati e assenze',
     items: [

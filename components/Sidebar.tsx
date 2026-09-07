@@ -49,6 +49,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
 
   const userMenuItems: MenuItem[] = [
     { label: 'Il mio Schedule',    href: '/schedule',    icon: '📅' },
+    { label: 'Il mio Profilo',     href: '/profile',     icon: '👤' },
     { label: 'Preferenze Turno',   href: '/preferences', icon: '⭐' },
     { label: 'Richieste Scambio',  href: '/swaps',       icon: '🔄' },
     { label: 'Ferie e Permessi',   href: '/leave',       icon: '✈️' },
@@ -96,6 +97,7 @@ export default function Sidebar({ isOpen, userRole }: SidebarProps) {
       href: '/schedule',
       items: [
         { label: 'Il mio Schedule',    href: '/schedule',    icon: '📅' },
+        { label: 'Il mio Profilo',     href: '/profile',     icon: '👤' },
         { label: 'Le mie Preferenze',  href: '/preferences', icon: '⭐' },
         { label: 'I miei Scambi',      href: '/swaps',       icon: '🔄' },
         { label: 'Ferie e Permessi',   href: '/leave',       icon: '✈️' },

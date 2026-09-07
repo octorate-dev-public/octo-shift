@@ -94,6 +94,8 @@ SUPABASE_SERVICE_ROLE_KEY=
 # Facoltative
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+GOOGLE_MAPS_API_KEY=        # Distance Matrix API — calcolo distanza casa→ufficio (profilo dipendente)
+EMERGENCY_ONCALL_TOKEN=     # opzionale, protegge /api/emergency/on-call
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_ANALYTICS_ID=
 ```

@@ -138,3 +138,16 @@ esposte via PATCH /api/shifts con `action: 'lockDay'|'unlockDay'|'lockMonth'|'un
 (lock passa `lockedBy`). UI in /admin/schedule: bottoni "🔒 Blocca mese"/"🔓 Sblocca mese"
 in toolbar (con conferma), e nel DayShiftPanel bottone giorno + 🔒 per-cella cliccabile per
 sbloccare la singola. Le bulk toccano solo i turni con `locked` opposto (idempotenti).
+
+## 19. Distanza dal lavoro + giorno smart preferito
+
+Nuovi campi su `users`: `work_address`, `commute_minutes` (Google Distance Matrix, tempo auto),
+`preferred_smart_day` ('monday'..'friday', una sola). Aggiunti allo schema e garantiti allo
+start da `ensureUserColumns()` (ex ensureUserPhoneColumn, ora generico su più colonne; la DDL
+resta non eseguibile dal client → se manca l'RPC exec_sql logga l'ALTER da fare a mano).
+Calcolo distanza: POST `/api/distance` { userId, address } → usa `GOOGLE_MAPS_API_KEY` (server),
+destinazione = setting `office_address` (/admin/settings, default Via Filippo Caruso 23, Roma),
+salva work_address + commute_minutes. Il dipendente li configura da `/profile` (self-service:
+solo il proprio utente). Algoritmo: `SMART_DAY_PREF` spinge verso smart nel giorno preferito;
+`COMMUTE_WEIGHT` (cap 90 min) come tiebreaker distanza — entrambi sottratti allo score ufficio,
+sotto i minimi hard (ufficio + smart settimanale).

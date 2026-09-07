@@ -7,8 +7,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
   try {
-    const { ensureUserPhoneColumn } = await import('./lib/ensure-schema');
-    await ensureUserPhoneColumn();
+    const { ensureUserColumns } = await import('./lib/ensure-schema');
+    await ensureUserColumns();
   } catch {
     // Non bloccare mai l'avvio dell'app per una verifica di schema.
   }

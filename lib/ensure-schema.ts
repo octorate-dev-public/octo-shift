@@ -3,55 +3,56 @@ import { createLogger } from './logger';
 
 const log = createLogger('ensureSchema');
 
-const PHONE_DDL = 'ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);';
+// Colonne opzionali della tabella users che l'app tenta di garantire allo start.
+const USER_COLUMNS: Array<{ name: string; ddl: string }> = [
+  { name: 'phone', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);' },
+  { name: 'work_address', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address VARCHAR(255);' },
+  { name: 'commute_minutes', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS commute_minutes INTEGER;' },
+  { name: 'preferred_smart_day', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_smart_day VARCHAR(10);' },
+];
 
 /**
- * Verifica allo start dell'app che la colonna `users.phone` esista.
- * Se manca, prova ad aggiungerla via RPC `exec_sql` (se disponibile nel DB).
- * La DDL NON è eseguibile direttamente dal client Supabase: se l'RPC non esiste,
- * logga un avviso ben visibile con l'SQL esatto da eseguire una volta a mano.
- * Idempotente e non-bloccante: qualsiasi errore viene solo loggato.
+ * Verifica allo start che le colonne opzionali di `users` esistano. Se una manca,
+ * prova ad aggiungerla via RPC `exec_sql` (se disponibile nel DB). La DDL NON è
+ * eseguibile direttamente dal client Supabase: se l'RPC non c'è, logga un avviso
+ * con l'SQL esatto da eseguire una volta a mano. Idempotente e non-bloccante.
  */
-export async function ensureUserPhoneColumn(): Promise<void> {
+export async function ensureUserColumns(): Promise<void> {
   let supabase;
   try {
     supabase = getServerSupabaseClient();
   } catch (e) {
-    log.warn('ensureUserPhoneColumn', 'Client service-role non disponibile, salto', {
+    log.warn('ensureUserColumns', 'Client service-role non disponibile, salto', {
       err: e instanceof Error ? e.message : String(e),
     });
     return;
   }
 
-  // 1. La colonna esiste già?
-  const { error: selErr } = await supabase.from('users').select('phone').limit(1);
-  if (!selErr) {
-    log.info('ensureUserPhoneColumn', 'Colonna users.phone presente');
-    return;
-  }
+  for (const col of USER_COLUMNS) {
+    const { error: selErr } = await supabase.from('users').select(col.name).limit(1);
+    if (!selErr) continue; // colonna presente
 
-  const missing =
-    selErr.code === '42703' || /column .*phone.* does not exist/i.test(selErr.message ?? '');
-  if (!missing) {
-    log.warn('ensureUserPhoneColumn', 'Verifica colonna phone fallita (non per assenza)', {
-      code: selErr.code,
-      message: selErr.message,
-    });
-    return;
-  }
+    const missing =
+      selErr.code === '42703' ||
+      new RegExp(`column .*${col.name}.* does not exist`, 'i').test(selErr.message ?? '');
+    if (!missing) {
+      log.warn('ensureUserColumns', `Verifica colonna ${col.name} fallita (non per assenza)`, {
+        code: selErr.code,
+        message: selErr.message,
+      });
+      continue;
+    }
 
-  // 2. Manca → prova ad aggiungerla via RPC exec_sql (se il DB la espone)
-  const { error: rpcErr } = await supabase.rpc('exec_sql', { sql: PHONE_DDL });
-  if (!rpcErr) {
-    log.info('ensureUserPhoneColumn', 'Colonna users.phone aggiunta via RPC exec_sql');
-    return;
-  }
+    const { error: rpcErr } = await supabase.rpc('exec_sql', { sql: col.ddl });
+    if (!rpcErr) {
+      log.info('ensureUserColumns', `Colonna users.${col.name} aggiunta via RPC exec_sql`);
+      continue;
+    }
 
-  // 3. Nessun modo automatico → avviso esplicito con l'SQL da eseguire
-  log.warn(
-    'ensureUserPhoneColumn',
-    `⚠️  Colonna 'users.phone' MANCANTE e impossibile crearla in automatico ` +
-      `(RPC exec_sql non disponibile: ${rpcErr.message}). ` +
-      `Esegui una volta sulla Supabase SQL Editor: ${PHONE_DDL}`,
-  );
+    log.warn(
+      'ensureUserColumns',
+      `⚠️  Colonna 'users.${col.name}' MANCANTE e impossibile crearla in automatico ` +
+        `(RPC exec_sql non disponibile: ${rpcErr.message}). Esegui a mano: ${col.ddl}`,
+    );
+  }
 }
