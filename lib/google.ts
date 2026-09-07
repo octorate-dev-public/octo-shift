@@ -370,3 +370,40 @@ export async function syncFerie(): Promise<{ created: number; updated: number; d
   log.info('syncFerie', 'Sync completata', { created, updated, deleted, unchanged });
   return { created, updated, deleted, unchanged, total: desired.size };
 }
+
+/**
+ * Cancella TUTTI gli eventi creati da questo script (tag octoshift=ferie), su qualsiasi
+ * data — usato dal pulsante "Pulisci eventi". Non tocca MAI eventi non taggati (di altri).
+ * Nessun filtro temporale: raccoglie tutto il taggato e lo elimina.
+ */
+export async function purgeFerie(): Promise<{ deleted: number }> {
+  const token = await ensureAccessToken();
+  const calendarId = await getCalendarId();
+
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      privateExtendedProperty: `${TAG_KEY}=${TAG_VAL}`,
+      showDeleted: 'false',
+      maxResults: '250',
+      singleEvents: 'true',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const data = await gcal(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`, {}, token.access_token);
+    for (const ev of data.items || []) {
+      // doppia sicurezza: elimina solo se il tag è davvero il nostro
+      if (ev.id && ev.extendedProperties?.private?.[TAG_KEY] === TAG_VAL) ids.push(ev.id);
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  let deleted = 0;
+  for (const id of ids) {
+    await gcal(`/calendars/${encodeURIComponent(calendarId)}/events/${id}`, { method: 'DELETE' }, token.access_token);
+    deleted++;
+  }
+
+  log.info('purgeFerie', 'Pulizia completata', { deleted });
+  return { deleted };
+}

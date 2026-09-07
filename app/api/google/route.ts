@@ -6,6 +6,7 @@ import {
   setCalendarId,
   setTitleTemplate,
   syncFerie,
+  purgeFerie,
 } from '@/lib/google';
 
 /**
@@ -26,6 +27,7 @@ export const GET = withHandler('api/google', 'GET', async (req) => {
  * POST /api/google  { action: 'setCalendar', calendarId }
  * POST /api/google  { action: 'setTitle', titleTemplate }
  * POST /api/google  { action: 'sync' }                     → sincronizza le ferie
+ * POST /api/google  { action: 'purge' }                    → elimina TUTTI i nostri eventi (tag octoshift)
  */
 export const POST = withHandler('api/google', 'POST', async (req) => {
   const body = await parseBody(req);
@@ -45,6 +47,10 @@ export const POST = withHandler('api/google', 'POST', async (req) => {
   }
   if (action === 'sync') {
     const result = await syncFerie();
+    return jsonOk(result);
+  }
+  if (action === 'purge') {
+    const result = await purgeFerie();
     return jsonOk(result);
   }
   return jsonOk({ error: 'Azione non riconosciuta' }, 400);

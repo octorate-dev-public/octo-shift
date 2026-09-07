@@ -41,20 +41,33 @@ export default function GoogleCalendarCard() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
+  const flash = (kind: 'ok' | 'err', text: string) => { setMsg({ kind, text }); setTimeout(() => setMsg(null), 6000); };
+
+  const runSync = useCallback(async (auto = false) => {
+    setBusy('sync');
+    try {
+      const r = await api.post<{ created: number; updated: number; deleted: number; unchanged: number; total: number }>('/api/google', { action: 'sync' });
+      flash('ok', `${auto ? 'Sync automatica dopo il collegamento — ' : ''}Ferie: ${r.created} creati, ${r.updated} aggiornati, ${r.deleted} eliminati, ${r.unchanged} invariati (${r.total} blocchi).`);
+    } catch (e) { flash('err', e instanceof Error ? e.message : 'Errore sync'); }
+    finally { setBusy(null); }
+  }, []);
+
   // Banner dal redirect OAuth (?google=connected|error&msg=...)
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const g = p.get('google');
-    if (g === 'connected') setMsg({ kind: 'ok', text: 'Account Google collegato.' });
+    if (g === 'connected') {
+      setMsg({ kind: 'ok', text: 'Account Google collegato. Avvio sincronizzazione ferie…' });
+      // Sync automatica appena connesso → gli eventi futuri vengono creati subito.
+      runSync(true);
+    }
     else if (g === 'error') setMsg({ kind: 'err', text: `Errore Google: ${p.get('msg') || 'sconosciuto'}` });
     if (g) {
       p.delete('google'); p.delete('msg');
       const qs = p.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
     }
-  }, []);
-
-  const flash = (kind: 'ok' | 'err', text: string) => { setMsg({ kind, text }); setTimeout(() => setMsg(null), 5000); };
+  }, [runSync]);
 
   const handleDisconnect = async () => {
     if (!window.confirm('Scollegare l\'account Google? Gli eventi già creati restano sul calendario.')) return;
@@ -78,12 +91,15 @@ export default function GoogleCalendarCard() {
     finally { setBusy(null); }
   };
 
-  const handleSync = async () => {
-    setBusy('sync');
+  const handleSync = () => runSync(false);
+
+  const handlePurge = async () => {
+    if (!window.confirm('Eliminare TUTTI gli eventi creati da questa app (ferie) dal calendario? Gli eventi di altri NON vengono toccati. Operazione non reversibile.')) return;
+    setBusy('purge');
     try {
-      const r = await api.post<{ created: number; updated: number; deleted: number; unchanged: number; total: number }>('/api/google', { action: 'sync' });
-      flash('ok', `Sync ferie: ${r.created} creati, ${r.updated} aggiornati, ${r.deleted} eliminati, ${r.unchanged} invariati (${r.total} blocchi).`);
-    } catch (e) { flash('err', e instanceof Error ? e.message : 'Errore sync'); }
+      const r = await api.post<{ deleted: number }>('/api/google', { action: 'purge' });
+      flash('ok', `Puliti ${r.deleted} eventi creati dall'app.`);
+    } catch (e) { flash('err', e instanceof Error ? e.message : 'Errore pulizia'); }
     finally { setBusy(null); }
   };
 
@@ -179,12 +195,24 @@ export default function GoogleCalendarCard() {
                 <p className="text-xs text-gray-400 mt-1"><code>{'{name}'}</code> = nome del dipendente.</p>
               </div>
 
-              {/* Sync */}
-              <button onClick={handleSync} disabled={busy === 'sync'} className="w-full btn-primary disabled:opacity-50">
-                {busy === 'sync' ? '⏳ Sincronizzazione…' : '🔄 Sincronizza ferie ora'}
-              </button>
+              {/* Sync + Pulizia */}
+              <div className="flex gap-2">
+                <button onClick={handleSync} disabled={busy === 'sync'} className="flex-1 btn-primary disabled:opacity-50">
+                  {busy === 'sync' ? '⏳ Sincronizzazione…' : '🔄 Sincronizza ferie ora'}
+                </button>
+                <button
+                  onClick={handlePurge}
+                  disabled={busy === 'purge'}
+                  className="btn-secondary text-sm text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                  title="Elimina tutti gli eventi creati da questa app"
+                >
+                  {busy === 'purge' ? '⏳ Pulizia…' : '🗑️ Pulisci eventi'}
+                </button>
+              </div>
               <p className="text-xs text-gray-400">
-                Sincronizza le ferie da 7 giorni fa a 12 mesi avanti. Ferie multi-giorno raggruppate in un unico evento.
+                La sync parte in automatico appena colleghi l&apos;account. Copre le ferie da 60 giorni fa a 12 mesi
+                avanti; ferie multi-giorno raggruppate in un unico evento (i giorni lavorativi in mezzo restano separati).
+                &ldquo;Pulisci eventi&rdquo; cancella solo gli eventi creati da questa app.
               </p>
             </>
           )}
