@@ -172,9 +172,14 @@ niente giorni lavorativi marcati "Ferie") in eventi all-day (end ESCLUSIVO), e c
 SOLO eventi con `extendedProperties.private.octoshift='ferie'` (mai toccare eventi altrui; match per
 `octoshiftKey=userId:startDate`). `purgeFerie` elimina TUTTI i nostri eventi taggati (qualsiasi data,
 nessun filtro temporale) — pulsante "Pulisci eventi", conferma richiesta. API JSON: `GET/POST /api/google`
-(action=status|calendars|disconnect|setCalendar|setTitle|sync|purge). La sync NON è schedulata: parte
-manualmente col pulsante e in AUTOMATICO appena l'account viene collegato (la card, sul banner
-`?google=connected`, chiama subito action=sync). Env: GOOGLE_CLIENT_ID/SECRET + Redirect URI {origine}/api/google/callback.
+(action=status|calendars|disconnect|setCalendar|setTitle|sync|purge). Auto-sync ferie: (1) manuale col pulsante; (2) al collegamento account (card, banner
+`?google=connected` → action=sync); (3) **istantaneo su modifica ferie** — `/api/shifts`
+(setLeave/setLeaveRange/clearLeaveRange) e import KEROS chiamano `triggerFerieSyncInBackground`
+(lib/googleSync.ts, fire-and-forget, best-effort, NON blocca né fa fallire il salvataggio; salta
+se Google non collegato); (4) **cron notturno** `/api/google/cron` (vercel.json, `0 2 * * *`) come
+rete di sicurezza per ciò che la (3) perde (runtime serverless terminato prima). Il cron è protetto
+da `CRON_SECRET` (header Authorization: Bearer, inviato in automatico da Vercel Cron). NB fire-and-forget
+su Vercel non è garantito → la (4) garantisce la consistenza eventuale. Env: GOOGLE_CLIENT_ID/SECRET + Redirect URI {origine}/api/google/callback.
 Il redirect_uri usa `resolveBaseUrl` (preferisce NEXT_PUBLIC_APP_URL, fallback origin) → dietro proxy
 Vercel deve combaciare ESATTAMENTE con quello registrato su Google Cloud. "Cambia account" = ri-esegue
 /api/google/auth (prompt select_account); se l'email cambia il callback resetta `google_calendar_id` a

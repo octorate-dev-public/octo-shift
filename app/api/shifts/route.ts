@@ -1,5 +1,6 @@
 import { withHandler, jsonOk, parseBody, requireParam, noContent } from '@/lib/api-handler';
 import { shiftsAPI } from '@/lib/api/shifts';
+import { triggerFerieSyncInBackground } from '@/lib/googleSync';
 
 /**
  * GET /api/shifts?date=YYYY-MM-DD          → shifts for that day
@@ -106,18 +107,21 @@ export const PATCH = withHandler('api/shifts', 'PATCH', async (req) => {
     // leaveType can be null to clear the leave, or 'sick' | 'vacation' | 'permission'
     // leaveNote (optional) stores orario for permissions (e.g. "dalle 09:00 alle 12:00 (3h)")
     const shift = await shiftsAPI.setLeaveType(userId, shiftDate, leaveType ?? null, body.leaveNote ?? null);
+    triggerFerieSyncInBackground('setLeave'); // auto-sync ferie su Google (best-effort)
     return jsonOk(shift);
   }
 
   if (action === 'setLeaveRange') {
     // Insert vacation (or other leave) for all working days (Mon–Fri) in a date range.
     const shifts = await shiftsAPI.setLeaveTypeRange(userId, body.startDate, body.endDate, leaveType);
+    triggerFerieSyncInBackground('setLeaveRange');
     return jsonOk(shifts);
   }
 
   if (action === 'clearLeaveRange') {
     // Remove leave_type from all shifts in a date range (bulk vacation delete).
     await shiftsAPI.clearLeaveTypeRange(userId, body.startDate, body.endDate);
+    triggerFerieSyncInBackground('clearLeaveRange');
     return jsonOk({ ok: true });
   }
 

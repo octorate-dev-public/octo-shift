@@ -15,6 +15,7 @@
 import { withHandler, jsonOk, parseBody } from '@/lib/api-handler';
 import { KerosClient, kerosDateToIso, workdaysInRange, matchUserByKerosName } from '@/lib/keros';
 import { shiftsAPI } from '@/lib/api/shifts';
+import { triggerFerieSyncInBackground } from '@/lib/googleSync';
 import { supabase, getServerSupabaseClient } from '@/lib/supabase';
 import { decrypt, isEncrypted } from '@/lib/crypto';
 import { createLogger } from '@/lib/logger';
@@ -253,6 +254,9 @@ export const POST = withHandler('api/keros', 'POST', async (req) => {
       status: dryRun ? 'dryrun' : 'imported',
     });
   }
+
+  // Import scritto qualcosa? Auto-sync ferie su Google una sola volta (best-effort).
+  if (!dryRun && results.imported > 0) triggerFerieSyncInBackground('kerosImport');
 
   log.info('POST',
     `━━━ KEROS IMPORT END ━━━ ` +
