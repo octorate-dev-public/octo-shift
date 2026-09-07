@@ -13,7 +13,7 @@ interface GoogleStatus {
   titleTemplate: string;
 }
 
-interface CalItem { id: string; summary: string; primary?: boolean }
+interface CalItem { id: string; summary: string; primary?: boolean; accessRole?: string; writable: boolean }
 
 export default function GoogleCalendarCard() {
   const [status, setStatus] = useState<GoogleStatus | null>(null);
@@ -174,9 +174,17 @@ export default function GoogleCalendarCard() {
                 >
                   {calendars.length === 0 && <option value={status.calendarId}>{status.calendarId}</option>}
                   {calendars.map((c) => (
-                    <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (principale)' : ''}</option>
+                    <option key={c.id} value={c.id} disabled={!c.writable}>
+                      {c.summary}
+                      {c.primary ? ' (principale)' : ''}
+                      {!c.writable ? ' — sola lettura, non usabile' : (c.accessRole === 'writer' ? ' (condiviso)' : '')}
+                    </option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Include i calendari condivisi con l&apos;account. Quelli in sola lettura non sono selezionabili
+                  (serve permesso di scrittura per creare gli eventi).
+                </p>
               </div>
 
               {/* Template titolo */}

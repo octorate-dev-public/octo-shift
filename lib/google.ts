@@ -197,12 +197,22 @@ export async function getStatus() {
   };
 }
 
-export async function listCalendars(): Promise<Array<{ id: string; summary: string; primary?: boolean }>> {
+export async function listCalendars(): Promise<Array<{ id: string; summary: string; primary?: boolean; accessRole?: string; writable: boolean }>> {
   const token = await ensureAccessToken();
+  // include anche i calendari condivisi con l'account (tutti quelli nella calendarList).
   const data = await gcal('/users/me/calendarList', {}, token.access_token);
   return (data.items || [])
-    .map((c: any) => ({ id: c.id, summary: c.summary, primary: c.primary }))
-    .sort((a: any, b: any) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0));
+    .map((c: any) => ({
+      id: c.id,
+      summary: c.summaryOverride || c.summary,
+      primary: c.primary,
+      accessRole: c.accessRole,          // owner | writer | reader | freeBusyReader
+      writable: c.accessRole === 'owner' || c.accessRole === 'writer', // serve scrittura per creare eventi
+    }))
+    // scrivibili prima, poi il principale in cima tra questi
+    .sort((a: any, b: any) =>
+      (b.writable ? 1 : 0) - (a.writable ? 1 : 0) ||
+      (b.primary ? 1 : 0) - (a.primary ? 1 : 0));
 }
 
 function addDaysStr(ds: string, n: number): string {
