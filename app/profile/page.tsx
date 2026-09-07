@@ -15,7 +15,7 @@ const WEEKDAYS: Array<{ value: string; label: string }> = [
 ];
 
 export default function ProfilePage() {
-  const { userId, userName, userRole, logout } = useAuth();
+  const { userId, userName, userRole, logout, accountUnlinked, error: authError, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -102,14 +102,20 @@ export default function ProfilePage() {
           <p className="text-gray-600 mt-2">Configura le tue preferenze personali.</p>
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        {(error || (accountUnlinked && authError)) && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error || authError}</div>
         )}
         {success && (
           <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg text-sm">{success}</div>
         )}
 
-        {loading ? (
+        {accountUnlinked ? (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-4 rounded-lg text-sm">
+            Il tuo account di login non è associato a un dipendente, quindi non c&apos;è un profilo da mostrare.
+            Esci e accedi con la tua <strong>email di lavoro</strong>, oppure chiedi a un amministratore di
+            correggere la tua email in <strong>Gestione dipendenti</strong>.
+          </div>
+        ) : (loading || authLoading) ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           </div>

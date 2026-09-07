@@ -85,6 +85,16 @@ Una pagina senza `useAuth({ requireAuth: true })` resterà accessibile a non
 loggati. Per pagine autenticate **chiama sempre `useAuth()`** in cima.
 `/public-on-call` è l'unica pagina autenticata-no su intenzione.
 
+**Risoluzione dipendente (id vs email):** `useAuth` cerca la riga `users` prima per
+`id === auth uid` (caso normale: `createUser` fa `id = auth uid`), poi come FALLBACK per
+`email` (case-insensitive, `.ilike`). Serve perché login via magic link o utenti importati
+possono avere `users.id ≠ auth uid`. `userId` ritornato è **l'id dell'app** (non l'auth uid)
+→ turni/preferenze (chiavati su `users.id`) restano visibili. Se nessun match né per id né per
+email → `accountUnlinked=true` + `error` con l'email: l'admin allinea l'email in `/admin/users`,
+oppure la persona accede con l'email di lavoro. NON allineare cambiando la PK: le FK
+(`shifts`, `user_teams`, `shift_preferences`, on-call, swap) sono `ON DELETE CASCADE` senza
+`ON UPDATE CASCADE`.
+
 ## 12. Capienza ufficio: minimo 1
 
 `settingsAPI.setMaxOfficeCapacity` rifiuta `< 1`. Se vuoi azzerare (giorno di

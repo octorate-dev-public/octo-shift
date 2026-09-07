@@ -9,6 +9,9 @@ interface AuthState {
   userId: string | null;
   userName: string;
   userRole: UserRole;
+  userEmail: string | null;
+  /** true = c'è una sessione ma nessun dipendente collegato (né per id né per email) */
+  accountUnlinked: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -31,6 +34,8 @@ export function useAuth(options?: { requireAuth?: boolean }) {
     userId: null,
     userName: 'Utente',
     userRole: 'user',
+    userEmail: null,
+    accountUnlinked: false,
     loading: true,
     error: null,
   });
@@ -61,27 +66,54 @@ export function useAuth(options?: { requireAuth?: boolean }) {
           return;
         }
 
-        // Fetch role and name from users table
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('role, full_name')
-          .eq('id', session.user.id)
-          .single();
+        const sessionEmail = session.user.email ?? null;
 
-        if (userError) {
-          console.error('useAuth user fetch error:', userError);
+        // 1. Match per id (caso normale: users.id === auth uid)
+        let { data: userData } = await supabase
+          .from('users')
+          .select('id, role, full_name')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        // 2. Fallback per EMAIL (case-insensitive): copre il caso in cui la riga
+        //    dipendente ha un id diverso dall'account di login (es. login via magic
+        //    link che ha creato un uid nuovo, o utenti importati). Ritorna l'id
+        //    dell'app → turni/preferenze (chiavati su users.id) tornano visibili.
+        if (!userData && sessionEmail) {
+          const { data: byEmail } = await supabase
+            .from('users')
+            .select('id, role, full_name')
+            .ilike('email', sessionEmail)
+            .limit(1)
+            .maybeSingle();
+          if (byEmail) userData = byEmail;
         }
 
         if (!cancelled) {
-          setAuth({
-            userId: session.user.id,
-            userName: userData?.full_name ?? session.user.email ?? 'Utente',
-            userRole: (userData?.role as UserRole) ?? 'user',
-            loading: false,
-            error: userError
-              ? `Utente autenticato ma errore nel recupero profilo: ${userError.message}`
-              : null,
-          });
+          if (userData) {
+            setAuth({
+              userId: userData.id, // id dell'app (non necessariamente l'auth uid)
+              userName: userData.full_name ?? sessionEmail ?? 'Utente',
+              userRole: (userData.role as UserRole) ?? 'user',
+              userEmail: sessionEmail,
+              accountUnlinked: false,
+              loading: false,
+              error: null,
+            });
+          } else {
+            // Sessione valida ma nessun dipendente collegato (né id né email)
+            setAuth({
+              userId: null,
+              userName: sessionEmail ?? 'Utente',
+              userRole: 'user',
+              userEmail: sessionEmail,
+              accountUnlinked: true,
+              loading: false,
+              error: `L'account ${sessionEmail ?? 'di login'} non è collegato a nessun dipendente. `
+                + `Accedi con la tua email di lavoro, oppure chiedi a un amministratore di allineare `
+                + `l'email in "Gestione dipendenti".`,
+            });
+          }
         }
       } catch (err) {
         console.error('useAuth unexpected error:', err);
@@ -109,6 +141,8 @@ export function useAuth(options?: { requireAuth?: boolean }) {
               userId: null,
               userName: 'Utente',
               userRole: 'user',
+              userEmail: null,
+              accountUnlinked: false,
               loading: false,
               error: null,
             });
