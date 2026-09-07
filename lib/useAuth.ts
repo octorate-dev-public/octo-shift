@@ -101,7 +101,8 @@ export function useAuth(options?: { requireAuth?: boolean }) {
               error: null,
             });
           } else {
-            // Sessione valida ma nessun dipendente collegato (né id né email)
+            // Sessione valida ma nessun dipendente collegato (né id né email):
+            // non deve restare loggato → torna al login con errore (il login fa il sign-out).
             setAuth({
               userId: null,
               userName: sessionEmail ?? 'Utente',
@@ -109,10 +110,9 @@ export function useAuth(options?: { requireAuth?: boolean }) {
               userEmail: sessionEmail,
               accountUnlinked: true,
               loading: false,
-              error: `L'account ${sessionEmail ?? 'di login'} non è collegato a nessun dipendente. `
-                + `Accedi con la tua email di lavoro, oppure chiedi a un amministratore di allineare `
-                + `l'email in "Gestione dipendenti".`,
+              error: `L'account ${sessionEmail ?? 'di login'} non è collegato a nessun dipendente.`,
             });
+            if (requireAuth) router.push('/?error=unlinked');
           }
         }
       } catch (err) {

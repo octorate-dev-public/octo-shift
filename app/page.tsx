@@ -62,11 +62,13 @@ function LoginPageInner() {
   const [mode, setMode] = useState<LoginMode>('password');
   const [magicLinkSent, setMagicLinkSent] = useState(false);
 
-  // Show error from callback redirect (e.g. ?error=auth_failed)
+  // Show error from callback/redirect (?error=auth_failed | unlinked)
   useEffect(() => {
     const errorParam = searchParams.get('error');
     if (errorParam === 'auth_failed') {
       setError('Autenticazione fallita. Il link potrebbe essere scaduto o non valido. Riprova.');
+    } else if (errorParam === 'unlinked') {
+      setError('Questo account non è associato a nessun dipendente. Accedi con la tua email di lavoro o contatta l\'amministratore.');
     }
   }, [searchParams]);
 
@@ -78,7 +80,7 @@ function LoginPageInner() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!cancelled && session?.user) {
-          await redirectByRole(session.user.id);
+          await gateAndRedirect(session.user);
           return;
         }
       } catch (err) {
@@ -95,7 +97,7 @@ function LoginPageInner() {
       const { data } = supabase.auth.onAuthStateChange(
         async (event, session) => {
           if (event === 'SIGNED_IN' && session?.user) {
-            await redirectByRole(session.user.id);
+            await gateAndRedirect(session.user);
           }
         },
       );
@@ -110,23 +112,34 @@ function LoginPageInner() {
     };
   }, []);
 
-  const redirectByRole = async (userId: string) => {
+  /**
+   * Risolve il dipendente collegato alla sessione: prima per id, poi per email
+   * (case-insensitive). Se nessuno → l'account non è associato a un dipendente:
+   * NON far entrare, sign-out + errore (l'email giusta è quella aziendale @octorate).
+   */
+  const gateAndRedirect = async (u: { id: string; email?: string | null }) => {
+    let linked: { role?: string } | null = null;
     try {
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', userId)
-        .single();
-
-      if (!userError && userData?.role === 'admin') {
-        router.push('/admin');
-      } else {
-        router.push('/calendar');
+      const byId = await supabase.from('users').select('role').eq('id', u.id).maybeSingle();
+      linked = byId.data;
+      if (!linked && u.email) {
+        const byEmail = await supabase.from('users').select('role').ilike('email', u.email).limit(1).maybeSingle();
+        linked = byEmail.data;
       }
     } catch {
-      // If role fetch fails, default to user calendar
-      router.push('/calendar');
+      linked = null;
     }
+
+    if (!linked) {
+      await supabase.auth.signOut();
+      setError(
+        `L'account ${u.email ?? ''} non è associato a nessun dipendente. `
+        + 'Accedi con la tua email di lavoro (@octorate) oppure contatta l\'amministratore.',
+      );
+      setCheckingSession(false);
+      return;
+    }
+    router.push(linked.role === 'admin' ? '/admin' : '/calendar');
   };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
@@ -146,7 +159,7 @@ function LoginPageInner() {
       }
 
       if (data.user) {
-        await redirectByRole(data.user.id);
+        await gateAndRedirect(data.user);
       }
     } catch (err) {
       console.error('Login error:', err);
