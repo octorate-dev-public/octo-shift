@@ -151,3 +151,17 @@ salva work_address + commute_minutes. Il dipendente li configura da `/profile` (
 solo il proprio utente). Algoritmo: `SMART_DAY_PREF` spinge verso smart nel giorno preferito;
 `COMMUTE_WEIGHT` (cap 90 min) come tiebreaker distanza — entrambi sottratti allo score ufficio,
 sotto i minimi hard (ufficio + smart settimanale).
+
+## 20. Sync ferie su Google Calendar
+
+Collegamento OAuth2 in /admin/settings (componente `GoogleCalendarCard`). Flusso:
+`GET /api/google/auth` (redirect consenso, offline + prompt=consent select_account, state in cookie)
+→ `GET /api/google/callback` (scambia code, salva token). Token cifrato (`lib/crypto`) nel
+settings key `google_oauth`; calendario in `google_calendar_id`, titolo in `google_ferie_title`
+(default `{name} (Developer) - Ferie`). Logica in `lib/google.ts`: `ensureAccessToken` rinfresca
+via refresh_token; `syncFerie` legge le ferie (leave_type='vacation') in [oggi-7g,+365g], le
+raggruppa per utente (`groupVacationBlocks`) in eventi all-day (end ESCLUSIVO), e crea/aggiorna/
+elimina SOLO eventi con `extendedProperties.private.octoshift='ferie'` (mai toccare eventi altrui;
+match per `octoshiftKey=userId:startDate`). API JSON: `GET/POST /api/google` (action=status|calendars|
+disconnect|setCalendar|setTitle|sync). Env: GOOGLE_CLIENT_ID/SECRET + Redirect URI {origine}/api/google/callback.
+"Cambia account" = ri-esegue /api/google/auth (prompt select_account) → per fare prove.

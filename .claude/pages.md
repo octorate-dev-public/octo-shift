@@ -32,7 +32,7 @@ Pattern App Router: `app/<segment>/page.tsx`. Tutte le UI sono in italiano.
 | `/admin/schedule` | [/app/admin/schedule/page.tsx](../app/admin/schedule/page.tsx) | Creazione schedule con drag & drop, generazione, validate, rebalance, export/import matrice Excel. |
 | `/admin/users` | [/app/admin/users/page.tsx](../app/admin/users/page.tsx) | Gestione dipendenti. |
 | `/admin/teams` | [/app/admin/teams/page.tsx](../app/admin/teams/page.tsx) | Gestione team. |
-| `/admin/settings` | [/app/admin/settings/page.tsx](../app/admin/settings/page.tsx) | Capienza ufficio, festività, work_days, credenziali KEROS. |
+| `/admin/settings` | [/app/admin/settings/page.tsx](../app/admin/settings/page.tsx) | Capienza ufficio, min smart settimanale, indirizzo ufficio, festività, work_days, credenziali KEROS, Google Calendar (sync ferie via `GoogleCalendarCard`). |
 | `/admin/leave` | [/app/admin/leave/page.tsx](../app/admin/leave/page.tsx) | Ferie/permessi di tutti. |
 | `/admin/on-call` | [/app/admin/on-call/page.tsx](../app/admin/on-call/page.tsx) | Assegnazione reperibilità (matrice annuale). |
 | `/admin/swaps` | [/app/admin/swaps/page.tsx](../app/admin/swaps/page.tsx) | Richieste escalated da approvare. |

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
+import GoogleCalendarCard from '@/components/GoogleCalendarCard';
 
 const EU_TIMEZONES = [
   { value: 'Europe/Rome', label: 'Europa/Roma (CET/CEST)' },
@@ -316,6 +317,9 @@ export default function AdminSettingsPage() {
               {capacityFeedback.status === 'loading' ? 'Salvataggio...' : 'Salva'}
             </button>
           </div>
+
+          {/* Card: Google Calendar — Ferie */}
+          <GoogleCalendarCard />
 
           {/* Card: Indirizzo ufficio */}
           <div className="bg-white rounded-lg shadow p-6 space-y-4">
