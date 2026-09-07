@@ -16,21 +16,40 @@ export default function AuthCallback() {
   const router = useRouter();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const { data: userData } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
+    let done = false;
 
-          router.replace(userData?.role === 'admin' ? '/admin' : '/calendar');
+    const resolveAndGo = async (u: { id: string; email?: string | null }) => {
+      if (done) return;
+      done = true;
+      try {
+        let userData: { role?: string } | null = null;
+        const byId = await supabase.from('users').select('role').eq('id', u.id).maybeSingle();
+        userData = byId.data;
+        if (!userData && u.email) {
+          const byEmail = await supabase.from('users').select('role').ilike('email', u.email).limit(1).maybeSingle();
+          userData = byEmail.data;
         }
-      },
-    );
+        // Se non collegato, useAuth sulla pagina di destinazione rimanda a /?error=unlinked
+        router.replace(userData?.role === 'admin' ? '/admin' : '/calendar');
+      } catch {
+        router.replace('/calendar');
+      }
+    };
 
-    return () => subscription.unsubscribe();
+    // Caso 1: sessione già presente all'arrivo (l'evento SIGNED_IN potrebbe non scattare)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) resolveAndGo(session.user);
+    });
+
+    // Caso 2: la sessione arriva ora (scambio del code del magic link)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) resolveAndGo(session.user);
+    });
+
+    // Rete di sicurezza: non restare bloccati su "Accesso in corso…"
+    const safety = setTimeout(() => { if (!done) router.replace('/'); }, 8000);
+
+    return () => { clearTimeout(safety); subscription.unsubscribe(); };
   }, [router]);
 
   return (

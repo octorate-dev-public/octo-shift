@@ -76,6 +76,11 @@ function LoginPageInner() {
   useEffect(() => {
     let cancelled = false;
 
+    // Rete di sicurezza: qualunque cosa vada storta (query stallata, redirect che
+    // non parte), dopo 6s mostra comunque il form di login invece dello spinner
+    // infinito "Verifica sessione…".
+    const safety = setTimeout(() => { if (!cancelled) setCheckingSession(false); }, 6000);
+
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -108,6 +113,7 @@ function LoginPageInner() {
 
     return () => {
       cancelled = true;
+      clearTimeout(safety);
       subscription?.unsubscribe();
     };
   }, []);
@@ -119,16 +125,30 @@ function LoginPageInner() {
    */
   const gateAndRedirect = async (u: { id: string; email?: string | null }) => {
     let linked: { role?: string } | null = null;
+    let lookupFailed = false;
     try {
-      const byId = await supabase.from('users').select('role').eq('id', u.id).maybeSingle();
-      linked = byId.data;
-      if (!linked && u.email) {
-        const byEmail = await supabase.from('users').select('role').ilike('email', u.email).limit(1).maybeSingle();
-        linked = byEmail.data;
-      }
+      const lookup = (async () => {
+        const byId = await supabase.from('users').select('role').eq('id', u.id).maybeSingle();
+        if (byId.data) return byId.data;
+        if (u.email) {
+          const byEmail = await supabase.from('users').select('role').ilike('email', u.email).limit(1).maybeSingle();
+          return byEmail.data;
+        }
+        return null;
+      })();
+      // timeout: se la rete stalla non congelare lo spinner
+      const timeout = new Promise<'timeout'>((res) => setTimeout(() => res('timeout'), 4000));
+      const result = await Promise.race([lookup, timeout]);
+      if (result === 'timeout') { lookupFailed = true; }
+      else { linked = result as { role?: string } | null; }
     } catch {
-      linked = null;
+      lookupFailed = true;
     }
+
+    // Rete stallata/errore: non sappiamo se è collegato → NON sloggare (potrebbe
+    // essere valido). Entra ottimisticamente; useAuth ricontrolla e, se scollegato,
+    // rimanda a /?error=unlinked.
+    if (lookupFailed) { router.push('/calendar'); return; }
 
     if (!linked) {
       await supabase.auth.signOut();
