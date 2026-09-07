@@ -11,6 +11,7 @@ interface GoogleStatus {
   expired: boolean | null;
   calendarId: string;
   titleTemplate: string;
+  permTitleTemplate: string;
 }
 
 interface CalItem { id: string; summary: string; primary?: boolean; accessRole?: string; writable: boolean }
@@ -19,6 +20,7 @@ export default function GoogleCalendarCard() {
   const [status, setStatus] = useState<GoogleStatus | null>(null);
   const [calendars, setCalendars] = useState<CalItem[]>([]);
   const [titleTemplate, setTitleTemplate] = useState('');
+  const [permTitleTemplate, setPermTitleTemplate] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -28,6 +30,7 @@ export default function GoogleCalendarCard() {
       const s = await api.get<GoogleStatus>('/api/google?action=status');
       setStatus(s);
       setTitleTemplate(s.titleTemplate);
+      setPermTitleTemplate(s.permTitleTemplate);
       if (s.connected) {
         try { setCalendars(await api.get<CalItem[]>('/api/google?action=calendars')); }
         catch { /* token può essere scaduto/revocato: lo status mostra comunque */ }
@@ -86,7 +89,14 @@ export default function GoogleCalendarCard() {
 
   const handleSaveTitle = async () => {
     setBusy('title');
-    try { await api.post('/api/google', { action: 'setTitle', titleTemplate }); await loadStatus(); flash('ok', 'Template titolo salvato.'); }
+    try { await api.post('/api/google', { action: 'setTitle', titleTemplate }); await loadStatus(); flash('ok', 'Template titolo ferie salvato.'); }
+    catch (e) { flash('err', e instanceof Error ? e.message : 'Errore'); }
+    finally { setBusy(null); }
+  };
+
+  const handleSavePermTitle = async () => {
+    setBusy('permTitle');
+    try { await api.post('/api/google', { action: 'setPermTitle', permTitleTemplate }); await loadStatus(); flash('ok', 'Template titolo permesso salvato.'); }
     catch (e) { flash('err', e instanceof Error ? e.message : 'Errore'); }
     finally { setBusy(null); }
   };
@@ -203,6 +213,22 @@ export default function GoogleCalendarCard() {
                 <p className="text-xs text-gray-400 mt-1"><code>{'{name}'}</code> = nome del dipendente.</p>
               </div>
 
+              {/* Template titolo permesso */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Titolo evento permesso</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={permTitleTemplate}
+                    onChange={(e) => setPermTitleTemplate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="{name} (Developer) - Permesso"
+                  />
+                  <button onClick={handleSavePermTitle} disabled={busy === 'permTitle'} className="btn-secondary text-sm disabled:opacity-50">Salva</button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">I permessi sono eventi <strong>a orario</strong> (dalla nota &ldquo;dalle..alle..&rdquo;), pausa 13–14 esclusa.</p>
+              </div>
+
               {/* Sync + Pulizia */}
               <div className="flex gap-2">
                 <button onClick={handleSync} disabled={busy === 'sync'} className="flex-1 btn-primary disabled:opacity-50">
@@ -218,9 +244,10 @@ export default function GoogleCalendarCard() {
                 </button>
               </div>
               <p className="text-xs text-gray-400">
-                La sync parte in automatico appena colleghi l&apos;account. Copre le ferie da 60 giorni fa a 12 mesi
-                avanti; ferie multi-giorno raggruppate in un unico evento (i giorni lavorativi in mezzo restano separati).
-                &ldquo;Pulisci eventi&rdquo; cancella solo gli eventi creati da questa app.
+                La sync parte in automatico appena colleghi l&apos;account e ad ogni modifica di ferie/permessi.
+                Copre da 60 giorni fa a 12 mesi avanti. Ferie = eventi giornata intera (multi-giorno raggruppati);
+                permessi = eventi a orario con pausa 13–14 esclusa. &ldquo;Pulisci eventi&rdquo; cancella solo gli
+                eventi creati da questa app.
               </p>
             </>
           )}

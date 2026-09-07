@@ -11,13 +11,21 @@ export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar https://ww
 
 const TOKEN_KEY = 'google_oauth';                 // JSON cifrato
 const CAL_KEY = 'google_calendar_id';             // id calendario destinazione
-const TITLE_KEY = 'google_ferie_title';           // template titolo evento
+const TITLE_KEY = 'google_ferie_title';           // template titolo evento ferie
+const PERM_TITLE_KEY = 'google_permesso_title';   // template titolo evento permesso
 const DEFAULT_TITLE = '{name} (Developer) - Ferie';
+const DEFAULT_PERM_TITLE = '{name} (Developer) - Permesso';
 const DEFAULT_CAL = 'primary';
 
 // Tag interno per riconoscere SOLO i nostri eventi (mai toccare quelli altrui).
+// Il valore distingue il tipo: 'ferie' (all-day) | 'permesso' (a orario).
 const TAG_KEY = 'octoshift';
 const TAG_VAL = 'ferie';
+const TAG_VAL_PERM = 'permesso';
+
+// Pausa pranzo esclusa dai permessi (coerente con computePermissionHours in utils.ts).
+const LUNCH_START_MIN = 13 * 60;
+const LUNCH_END_MIN = 14 * 60;
 
 export interface GoogleToken {
   refresh_token: string;
@@ -180,11 +188,18 @@ export async function getTitleTemplate(): Promise<string> {
 export async function setTitleTemplate(t: string): Promise<void> {
   await settingsAPI.setSetting(TITLE_KEY, t || DEFAULT_TITLE);
 }
+export async function getPermTitleTemplate(): Promise<string> {
+  return (await settingsAPI.getSetting(PERM_TITLE_KEY)) || DEFAULT_PERM_TITLE;
+}
+export async function setPermTitleTemplate(t: string): Promise<void> {
+  await settingsAPI.setSetting(PERM_TITLE_KEY, t || DEFAULT_PERM_TITLE);
+}
 
 export async function getStatus() {
   const token = await loadToken();
   const calendarId = await getCalendarId();
   const titleTemplate = await getTitleTemplate();
+  const permTitleTemplate = await getPermTitleTemplate();
   const hasClient = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   return {
     configured: hasClient,
@@ -194,6 +209,7 @@ export async function getStatus() {
     expired: token ? Date.now() >= token.expiry : null,
     calendarId,
     titleTemplate,
+    permTitleTemplate,
   };
 }
 
@@ -259,84 +275,87 @@ function groupCalendarVacationBlocks(
 }
 
 interface DesiredEvent {
-  key: string;        // octoshiftKey stabile: userId:startDate
+  key: string;        // octoshiftKey stabile
+  tag: string;        // TAG_VAL (ferie) | TAG_VAL_PERM (permesso)
   title: string;
-  startDate: string;  // all-day start (inclusivo)
-  endDate: string;    // all-day end (ESCLUSIVO per Google)
+  allDay: boolean;
+  // all-day (ferie)
+  startDate?: string; // inclusivo
+  endDate?: string;   // ESCLUSIVO per Google
+  // a orario (permesso)
+  startDateTime?: string; // 'YYYY-MM-DDTHH:MM:00' (wall time nel timeZone)
+  endDateTime?: string;
+  timeZone?: string;
 }
 
-/**
- * Sincronizza le FERIE su Google Calendar.
- * - Legge le ferie (leave_type='vacation') nella finestra [oggi-7g, +365g].
- * - Raggruppa per utente in blocchi di giorni consecutivi → un evento all-day per blocco.
- * - Crea/aggiorna/elimina SOLO gli eventi con extendedProperties.private.octoshift='ferie'.
- *   Gli eventi creati da altri (senza il nostro tag) non vengono MAI toccati.
- */
-export async function syncFerie(): Promise<{ created: number; updated: number; deleted: number; unchanged: number; total: number }> {
-  const token = await ensureAccessToken();
-  const calendarId = await getCalendarId();
-  const template = await getTitleTemplate();
+/** Estrae "dalle HH:MM alle HH:MM" da una nota permesso. */
+function parsePermRange(note: string | null | undefined): { start: string; end: string } | null {
+  if (!note) return null;
+  const m = note.match(/dalle\s+(\d{1,2}:\d{2})\s+alle\s+(\d{1,2}:\d{2})/i);
+  if (!m) return null;
+  const pad = (t: string) => (t.length === 4 ? '0' + t : t);
+  return { start: pad(m[1]), end: pad(m[2]) };
+}
 
-  const today = new Date();
-  // finestra ampia all'indietro: una ferie iniziata nel recente passato mantiene
-  // la stessa key (userId:startDate) tra sync successive (no cancella+ricrea).
-  const timeMinDate = formatDate(new Date(today.getTime() - 60 * 86400000));
-  const timeMaxDate = formatDate(new Date(today.getTime() + 365 * 86400000));
-
-  const workDays = new Set(await settingsAPI.getWorkDays());
-  const holidays = new Set(await settingsAPI.getHolidayDates());
-
-  // 1. Ferie dal DB nella finestra, con nome utente
-  const { data: rows, error } = await supabase
-    .from('shifts')
-    .select('user_id, shift_date, leave_type, users:user_id(full_name)')
-    .eq('leave_type', 'vacation')
-    .gte('shift_date', timeMinDate)
-    .lte('shift_date', timeMaxDate);
-  if (error) throw new Error(`Lettura ferie fallita: ${error.message}`);
-
-  // 2. Raggruppa per utente → blocchi
-  const byUser = new Map<string, string[]>();
-  const nameByUser = new Map<string, string>();
-  for (const r of rows || []) {
-    const uid = (r as any).user_id as string;
-    if (!byUser.has(uid)) byUser.set(uid, []);
-    byUser.get(uid)!.push((r as any).shift_date);
-    const nm = (r as any).users?.full_name;
-    if (nm) nameByUser.set(uid, nm);
+/** Spezza [start,end) escludendo la pausa pranzo 13–14. Ritorna 0, 1 o 2 fasce "HH:MM". */
+function segmentsExcludingLunch(start: string, end: string): Array<[string, string]> {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+  const toStr = (mn: number) => `${String(Math.floor(mn / 60)).padStart(2, '0')}:${String(mn % 60).padStart(2, '0')}`;
+  const s = toMin(start), e = toMin(end);
+  if (e <= s) return [];
+  const raw: Array<[number, number]> = [];
+  if (e <= LUNCH_START_MIN || s >= LUNCH_END_MIN) {
+    raw.push([s, e]); // nessuna sovrapposizione con 13–14
+  } else {
+    if (s < LUNCH_START_MIN) raw.push([s, Math.min(e, LUNCH_START_MIN)]);
+    if (e > LUNCH_END_MIN) raw.push([Math.max(s, LUNCH_END_MIN), e]);
   }
+  return raw.filter(([a, b]) => b > a).map(([a, b]) => [toStr(a), toStr(b)] as [string, string]);
+}
 
-  const desired = new Map<string, DesiredEvent>();
-  for (const [uid, dates] of byUser) {
-    const blocks = groupCalendarVacationBlocks(dates, workDays, holidays);
-    const name = nameByUser.get(uid) ?? 'Dipendente';
-    for (const block of blocks) {
-      const startDate = block[0];
-      const endDate = block[block.length - 1];
-      const key = `${uid}:${startDate}`;
-      desired.set(key, {
-        key,
-        title: template.replace('{name}', name),
-        startDate,
-        endDate: addDaysStr(endDate, 1), // Google: end all-day è esclusivo
-      });
-    }
+function eventBody(d: DesiredEvent) {
+  const priv: Record<string, string> = { [TAG_KEY]: d.tag, octoshiftKey: d.key };
+  let start: any, end: any;
+  if (d.allDay) {
+    start = { date: d.startDate }; end = { date: d.endDate };
+  } else {
+    start = { dateTime: d.startDateTime, timeZone: d.timeZone };
+    end = { dateTime: d.endDateTime, timeZone: d.timeZone };
+    // salviamo la wall-time nostra → confronto "invariato" robusto (a prova di offset/DST)
+    priv.octoshiftStart = d.startDateTime!;
+    priv.octoshiftEnd = d.endDateTime!;
   }
+  return {
+    summary: d.title, start, end,
+    transparency: 'transparent',
+    reminders: { useDefault: false, overrides: [] }, // niente notifiche
+    extendedProperties: { private: priv },
+  };
+}
 
-  // 3. Eventi NOSTRI già presenti (solo quelli col tag octoshift=ferie)
-  const existing = new Map<string, any>(); // key → event
+function sameEvent(ev: any, d: DesiredEvent): boolean {
+  if (ev.summary !== d.title) return false;
+  if (d.allDay) return ev.start?.date === d.startDate && ev.end?.date === d.endDate;
+  const p = ev.extendedProperties?.private || {};
+  return p.octoshiftStart === d.startDateTime && p.octoshiftEnd === d.endDateTime;
+}
+
+/** Reconcile generico: crea/aggiorna/elimina SOLO gli eventi col tag dato. */
+async function reconcile(
+  calendarId: string, accessToken: string, tag: string,
+  desired: Map<string, DesiredEvent>, timeMinDate: string, timeMaxDate: string,
+): Promise<{ created: number; updated: number; deleted: number; unchanged: number }> {
+  const existing = new Map<string, any>();
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
-      privateExtendedProperty: `${TAG_KEY}=${TAG_VAL}`,
+      privateExtendedProperty: `${TAG_KEY}=${tag}`,
       timeMin: `${timeMinDate}T00:00:00Z`,
       timeMax: `${timeMaxDate}T23:59:59Z`,
-      showDeleted: 'false',
-      maxResults: '250',
-      singleEvents: 'true',
+      showDeleted: 'false', maxResults: '250', singleEvents: 'true',
     });
     if (pageToken) params.set('pageToken', pageToken);
-    const data = await gcal(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`, {}, token.access_token);
+    const data = await gcal(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`, {}, accessToken);
     for (const ev of data.items || []) {
       const k = ev.extendedProperties?.private?.octoshiftKey;
       if (k) existing.set(k, ev);
@@ -345,42 +364,115 @@ export async function syncFerie(): Promise<{ created: number; updated: number; d
   } while (pageToken);
 
   let created = 0, updated = 0, deleted = 0, unchanged = 0;
-
-  // 4. Crea / aggiorna
   for (const [key, d] of desired) {
-    const body = {
-      summary: d.title,
-      start: { date: d.startDate },
-      end: { date: d.endDate },
-      transparency: 'transparent',
-      // niente notifiche: override esplicito → ignora i promemoria di default del calendario
-      reminders: { useDefault: false, overrides: [] },
-      extendedProperties: { private: { [TAG_KEY]: TAG_VAL, octoshiftKey: key } },
-    };
     const ev = existing.get(key);
+    const body = JSON.stringify(eventBody(d));
     if (!ev) {
-      await gcal(`/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: JSON.stringify(body) }, token.access_token);
+      await gcal(`/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body }, accessToken);
       created++;
+    } else if (sameEvent(ev, d)) {
+      unchanged++;
     } else {
-      const same = ev.summary === d.title && ev.start?.date === d.startDate && ev.end?.date === d.endDate;
-      if (same) { unchanged++; }
-      else {
-        await gcal(`/calendars/${encodeURIComponent(calendarId)}/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(body) }, token.access_token);
-        updated++;
-      }
+      await gcal(`/calendars/${encodeURIComponent(calendarId)}/events/${ev.id}`, { method: 'PATCH', body }, accessToken);
+      updated++;
     }
   }
-
-  // 5. Elimina i NOSTRI eventi non più desiderati (ferie cancellate/spostate)
   for (const [key, ev] of existing) {
     if (!desired.has(key)) {
-      await gcal(`/calendars/${encodeURIComponent(calendarId)}/events/${ev.id}`, { method: 'DELETE' }, token.access_token);
+      await gcal(`/calendars/${encodeURIComponent(calendarId)}/events/${ev.id}`, { method: 'DELETE' }, accessToken);
       deleted++;
     }
   }
+  return { created, updated, deleted, unchanged };
+}
 
-  log.info('syncFerie', 'Sync completata', { created, updated, deleted, unchanged });
-  return { created, updated, deleted, unchanged, total: desired.size };
+/**
+ * Sincronizza FERIE (all-day) e PERMESSI (a orario) su Google Calendar.
+ * - Ferie (leave_type='vacation'): raggruppate in eventi all-day per blocco.
+ * - Permessi (leave_type='permission'): eventi a orario da leave_note "dalle..alle..",
+ *   escludendo la pausa pranzo 13–14 (spezzati in 2 fasce se la attraversano).
+ * - Crea/aggiorna/elimina SOLO eventi taggati octoshift ('ferie'|'permesso'); mai altri.
+ */
+export async function syncFerie(): Promise<{ created: number; updated: number; deleted: number; unchanged: number; total: number }> {
+  const token = await ensureAccessToken();
+  const calendarId = await getCalendarId();
+  const template = await getTitleTemplate();
+  const permTemplate = await getPermTitleTemplate();
+  const timeZone = await settingsAPI.getTimezone();
+
+  const today = new Date();
+  const timeMinDate = formatDate(new Date(today.getTime() - 60 * 86400000));
+  const timeMaxDate = formatDate(new Date(today.getTime() + 365 * 86400000));
+
+  const workDays = new Set(await settingsAPI.getWorkDays());
+  const holidays = new Set(await settingsAPI.getHolidayDates());
+
+  // ── FERIE (all-day) ────────────────────────────────────────────
+  const { data: ferieRows, error: fErr } = await supabase
+    .from('shifts')
+    .select('user_id, shift_date, users:user_id(full_name)')
+    .eq('leave_type', 'vacation')
+    .gte('shift_date', timeMinDate).lte('shift_date', timeMaxDate);
+  if (fErr) throw new Error(`Lettura ferie fallita: ${fErr.message}`);
+
+  const byUser = new Map<string, string[]>();
+  const nameByUser = new Map<string, string>();
+  for (const r of ferieRows || []) {
+    const uid = (r as any).user_id as string;
+    if (!byUser.has(uid)) byUser.set(uid, []);
+    byUser.get(uid)!.push((r as any).shift_date);
+    const nm = (r as any).users?.full_name;
+    if (nm) nameByUser.set(uid, nm);
+  }
+  const ferieDesired = new Map<string, DesiredEvent>();
+  for (const [uid, dates] of byUser) {
+    const name = nameByUser.get(uid) ?? 'Dipendente';
+    for (const block of groupCalendarVacationBlocks(dates, workDays, holidays)) {
+      const startDate = block[0];
+      const key = `${uid}:${startDate}`;
+      ferieDesired.set(key, {
+        key, tag: TAG_VAL, title: template.replace('{name}', name), allDay: true,
+        startDate, endDate: addDaysStr(block[block.length - 1], 1),
+      });
+    }
+  }
+
+  // ── PERMESSI (a orario, pausa 13–14 esclusa) ───────────────────
+  const { data: permRows, error: pErr } = await supabase
+    .from('shifts')
+    .select('user_id, shift_date, leave_note, users:user_id(full_name)')
+    .eq('leave_type', 'permission')
+    .gte('shift_date', timeMinDate).lte('shift_date', timeMaxDate);
+  if (pErr) throw new Error(`Lettura permessi fallita: ${pErr.message}`);
+
+  const permDesired = new Map<string, DesiredEvent>();
+  for (const r of permRows || []) {
+    const range = parsePermRange((r as any).leave_note);
+    if (!range) continue; // permesso senza orario nella nota → non sincronizzabile a orario
+    const uid = (r as any).user_id as string;
+    const date = (r as any).shift_date as string;
+    const name = (r as any).users?.full_name ?? 'Dipendente';
+    for (const [s, e] of segmentsExcludingLunch(range.start, range.end)) {
+      const key = `${uid}:${date}:${s.replace(':', '')}-${e.replace(':', '')}`;
+      permDesired.set(key, {
+        key, tag: TAG_VAL_PERM, title: permTemplate.replace('{name}', name), allDay: false,
+        startDateTime: `${date}T${s}:00`, endDateTime: `${date}T${e}:00`, timeZone,
+      });
+    }
+  }
+
+  const rf = await reconcile(calendarId, token.access_token, TAG_VAL, ferieDesired, timeMinDate, timeMaxDate);
+  const rp = await reconcile(calendarId, token.access_token, TAG_VAL_PERM, permDesired, timeMinDate, timeMaxDate);
+
+  const sum = {
+    created: rf.created + rp.created,
+    updated: rf.updated + rp.updated,
+    deleted: rf.deleted + rp.deleted,
+    unchanged: rf.unchanged + rp.unchanged,
+    total: ferieDesired.size + permDesired.size,
+  };
+  log.info('syncFerie', 'Sync completata', { ferie: rf, permessi: rp });
+  return sum;
 }
 
 /**
@@ -393,22 +485,24 @@ export async function purgeFerie(): Promise<{ deleted: number }> {
   const calendarId = await getCalendarId();
 
   const ids: string[] = [];
-  let pageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      privateExtendedProperty: `${TAG_KEY}=${TAG_VAL}`,
-      showDeleted: 'false',
-      maxResults: '250',
-      singleEvents: 'true',
-    });
-    if (pageToken) params.set('pageToken', pageToken);
-    const data = await gcal(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`, {}, token.access_token);
-    for (const ev of data.items || []) {
-      // doppia sicurezza: elimina solo se il tag è davvero il nostro
-      if (ev.id && ev.extendedProperties?.private?.[TAG_KEY] === TAG_VAL) ids.push(ev.id);
-    }
-    pageToken = data.nextPageToken;
-  } while (pageToken);
+  for (const tag of [TAG_VAL, TAG_VAL_PERM]) {
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        privateExtendedProperty: `${TAG_KEY}=${tag}`,
+        showDeleted: 'false',
+        maxResults: '250',
+        singleEvents: 'true',
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+      const data = await gcal(`/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`, {}, token.access_token);
+      for (const ev of data.items || []) {
+        // doppia sicurezza: elimina solo se il tag è davvero il nostro
+        if (ev.id && ev.extendedProperties?.private?.[TAG_KEY] === tag) ids.push(ev.id);
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+  }
 
   let deleted = 0;
   for (const id of ids) {

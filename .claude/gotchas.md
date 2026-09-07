@@ -186,7 +186,16 @@ niente giorni lavorativi marcati "Ferie") in eventi all-day (end ESCLUSIVO), e c
 SOLO eventi con `extendedProperties.private.octoshift='ferie'` (mai toccare eventi altrui; match per
 `octoshiftKey=userId:startDate`). `purgeFerie` elimina TUTTI i nostri eventi taggati (qualsiasi data,
 nessun filtro temporale) — pulsante "Pulisci eventi", conferma richiesta. API JSON: `GET/POST /api/google`
-(action=status|calendars|disconnect|setCalendar|setTitle|sync|purge). Auto-sync ferie: (1) manuale col pulsante; (2) al collegamento account (card, banner
+(action=status|calendars|disconnect|setCalendar|setTitle|sync|purge). **Permessi (a orario):** oltre alle ferie (all-day), `syncFerie` sincronizza anche i permessi
+(`leave_type='permission'`) come eventi A ORARIO, leggendo l'orario da `leave_note` ("dalle HH:MM
+alle HH:MM ..."). La **pausa pranzo 13–14 è esclusa**: se la fascia la attraversa viene spezzata
+in 2 eventi (coerente con `computePermissionHours`). Tag `octoshift='permesso'`, key
+`userId:date:HHMM-HHMM`, titolo template `google_permesso_title` (default `{name} (Developer) -
+Permesso`). Confronto "invariato" via `octoshiftStart/End` salvati in extendedProperties (a prova
+di offset/DST). `syncFerie` fa due `reconcile` (ferie + permessi); `purgeFerie` cancella entrambi
+i tag. Un permesso senza orario nella nota non è sincronizzabile → saltato.
+
+Auto-sync ferie/permessi: (1) manuale col pulsante; (2) al collegamento account (card, banner
 `?google=connected` → action=sync); (3) **istantaneo su modifica ferie** — `/api/shifts`
 (setLeave/setLeaveRange/clearLeaveRange) e import KEROS chiamano `triggerFerieSyncInBackground`
 (lib/googleSync.ts, fire-and-forget, best-effort, NON blocca né fa fallire il salvataggio; salta

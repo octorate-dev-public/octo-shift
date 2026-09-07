@@ -5,6 +5,7 @@ import {
   clearToken,
   setCalendarId,
   setTitleTemplate,
+  setPermTitleTemplate,
   syncFerie,
   purgeFerie,
 } from '@/lib/google';
@@ -43,6 +44,10 @@ export const POST = withHandler('api/google', 'POST', async (req) => {
   }
   if (action === 'setTitle') {
     await setTitleTemplate(body.titleTemplate);
+    return jsonOk({ ok: true });
+  }
+  if (action === 'setPermTitle') {
+    await setPermTitleTemplate(body.permTitleTemplate);
     return jsonOk({ ok: true });
   }
   if (action === 'sync') {
