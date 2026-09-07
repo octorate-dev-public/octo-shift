@@ -110,7 +110,7 @@ CREATE TABLE on_call_assignments (
 CREATE TABLE settings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   key VARCHAR(255) UNIQUE NOT NULL,
-  value VARCHAR(255) NOT NULL,
+  value TEXT NOT NULL, -- TEXT (non VARCHAR(255)): ospita valori lunghi cifrati (token OAuth Google, credenziali KEROS)
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -177,3 +177,10 @@ INSERT INTO settings (key, value) VALUES
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS commute_minutes INTEGER;
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_smart_day VARCHAR(10);
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS desired_smart_days_per_month INTEGER;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- MIGRATION: settings.value da VARCHAR(255) a TEXT.
+-- Obbligatoria per salvare valori lunghi cifrati (token OAuth Google, KEROS):
+-- senza, il collegamento Google dà "value too long for type character varying(255)".
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ALTER TABLE settings ALTER COLUMN value TYPE TEXT;
