@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeCode, saveToken } from '@/lib/google';
+import { exchangeCode, saveToken, loadToken, setCalendarId, resolveBaseUrl } from '@/lib/google';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,9 +21,15 @@ export async function GET(req: NextRequest) {
   if (!state || !cookieState || state !== cookieState) return back('error', 'State non valido (riprova)');
 
   try {
-    const redirectUri = `${origin}/api/google/callback`;
+    const redirectUri = `${resolveBaseUrl(origin)}/api/google/callback`;
+    const prev = await loadToken();
     const token = await exchangeCode(code, redirectUri);
     await saveToken(token);
+    // Account cambiato → il calendario salvato appartiene all'account vecchio:
+    // reset a 'primary' per evitare 404 su sync (scenario "prove con altro account").
+    if (prev?.email && token.email && prev.email !== token.email) {
+      await setCalendarId('primary');
+    }
     const res = back('connected');
     res.cookies.delete('g_oauth_state');
     return res;

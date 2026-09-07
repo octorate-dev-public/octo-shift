@@ -54,7 +54,7 @@ export const POST = withHandler('api/users', 'POST', async (req) => {
  * PATCH /api/users  { id, fullName?, email?, role?, seniorityDate?, teamId?, isActive? }
  */
 export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
-  const { id, fullName, email, role, seniorityDate, isActive, teamIds, onCallAvailable, scheduleStyle, skillRoles, phone, workAddress, commuteMinutes, preferredSmartDay } = await parseBody(req);
+  const { id, fullName, email, role, seniorityDate, isActive, teamIds, onCallAvailable, scheduleStyle, skillRoles, phone, workAddress, commuteMinutes, preferredSmartDay, desiredSmartDaysPerMonth } = await parseBody(req);
   if (!id) return jsonOk({ error: 'Parametro id mancante' }, 400);
 
   const updates: Record<string, unknown> = {};
@@ -64,6 +64,10 @@ export const PATCH = withHandler('api/users', 'PATCH', async (req) => {
   if (workAddress !== undefined) updates.work_address = workAddress === '' ? null : workAddress;
   if (commuteMinutes !== undefined) updates.commute_minutes = commuteMinutes;
   if (preferredSmartDay !== undefined) updates.preferred_smart_day = preferredSmartDay || null;
+  if (desiredSmartDaysPerMonth !== undefined) {
+    const n = Number(desiredSmartDaysPerMonth);
+    updates.desired_smart_days_per_month = Number.isFinite(n) ? Math.max(0, Math.min(31, Math.round(n))) : null;
+  }
   if (role !== undefined) updates.role = role;
   if (seniorityDate !== undefined) updates.seniority_date = seniorityDate;
   if (isActive !== undefined) updates.is_active = isActive;

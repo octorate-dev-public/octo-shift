@@ -29,6 +29,7 @@ File: [`lib/api/scheduling.ts`](../lib/api/scheduling.ts) → `generateMonthlySc
 | 7. Distanza dal lavoro | `COMMUTE_WEIGHT = 1.0`, cap `COMMUTE_CAP_MIN = 90` | `min(commute_minutes, 90)/90 * 1.0` sottratto allo score ufficio → più lontano = più smart. Tiebreaker "a parità di preferenza giorno" (< SMART_DAY_PREF). |
 | 8. Random settimanale | `WEEKLY_MIX_JITTER = 0.6` (±0.3) | Seeded su `utente+mese+settimana` (`seededUnit`): stabile entro la settimana, varia tra settimane → ogni tanto composizioni ufficio diverse. Tiebreaker. |
 | 9. Mix anzianità | `SENIORITY_MIX = 0.35` | A parità, alterna per settimana il micro-nudge verso l'ufficio tra metà senior e metà junior (`idx < regularCount/2`) → mescola anziani e giovani. Tiebreaker. |
+| 10. Giorni smart desiderati/mese | `DESIRE_WEIGHT = 0.15`, neutro `DEFAULT_DESIRE = 8` | `(desired_smart_days_per_month − media_pool) * 0.15` sottratto allo score ufficio. Slider self-service in `/profile` (0–22). Chi vuole più smart della media → più smart; chi meno → più ufficio. Preferenza SOFT: sotto i minimi hard, può non essere soddisfatta. |
 
 Il punteggio finale per ogni utente in un giorno è la somma. Si ordina decrescente.
 Assegnazione ufficio in due passaggi, con **budget ufficio SETTIMANALE** (non mensile):

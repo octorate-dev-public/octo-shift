@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildAuthUrl } from '@/lib/google';
+import { buildAuthUrl, resolveBaseUrl } from '@/lib/google';
 import { randomBytes } from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/google/auth → redirect al consenso Google (offline, prompt=consent). */
 export function GET(req: NextRequest) {
   try {
-    const redirectUri = `${req.nextUrl.origin}/api/google/callback`;
+    const redirectUri = `${resolveBaseUrl(req.nextUrl.origin)}/api/google/callback`;
     const state = randomBytes(16).toString('hex');
     const url = buildAuthUrl(redirectUri, state);
     const res = NextResponse.redirect(url);

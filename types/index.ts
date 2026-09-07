@@ -19,6 +19,7 @@ export interface User {
   work_address: string | null;      // indirizzo/città di casa (origine distanza dal lavoro)
   commute_minutes: number | null;   // tempo di percorrenza casa→ufficio in minuti (Google)
   preferred_smart_day: string | null; // giorno smart preferito: 'monday'..'friday'
+  desired_smart_days_per_month: number | null; // quanti giorni di smart al mese vorrebbe (preferenza, non garanzia)
   schedule_style: 'stable' | 'random'; // preferenza distribuzione smart: stesso giorno/settimana vs variata
   skill_roles: string[];    // ruoli tecnici (es. ['BACKEND', 'QUALITY']) — lista personalizzabile in settings
   created_at: string;

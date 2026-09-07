@@ -15,6 +15,7 @@ function mapUser(raw: any): User {
     work_address: raw.work_address ?? null,
     commute_minutes: raw.commute_minutes ?? null,
     preferred_smart_day: raw.preferred_smart_day ?? null,
+    desired_smart_days_per_month: raw.desired_smart_days_per_month ?? null,
     schedule_style: (raw.schedule_style === 'stable' ? 'stable' : 'random') as 'stable' | 'random',
     skill_roles: Array.isArray(raw.skill_roles) ? raw.skill_roles : [],
   };

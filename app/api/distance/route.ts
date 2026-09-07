@@ -4,11 +4,13 @@ import { getServerSupabaseClient } from '@/lib/supabase';
 
 /**
  * POST /api/distance  { userId, address }
- * Calcola il tempo di percorrenza (auto) casa→ufficio con Google Distance Matrix
- * e salva su users: work_address + commute_minutes. Ritorna i minuti e i testi.
+ * Calcola il tempo di percorrenza (auto) casa→ufficio con Google Routes API
+ * (computeRoutes) e salva su users: work_address + commute_minutes.
  *
- * Richiede la env GOOGLE_MAPS_API_KEY (server-side). L'origine è l'indirizzo
- * passato; la destinazione è l'indirizzo ufficio da impostazioni (office_address).
+ * Richiede la env GOOGLE_MAPS_API_KEY (server-side) e la "Routes API" abilitata
+ * sul progetto Google Cloud (la vecchia Distance Matrix API è legacy e restituisce
+ * REQUEST_DENIED). L'origine è l'indirizzo passato; la destinazione è
+ * l'indirizzo ufficio da impostazioni (office_address).
  */
 export const POST = withHandler('api/distance', 'POST', async (req) => {
   const { userId, address } = await parseBody(req);
@@ -23,26 +25,38 @@ export const POST = withHandler('api/distance', 'POST', async (req) => {
 
   const office = await settingsAPI.getOfficeAddress();
 
-  const url =
-    'https://maps.googleapis.com/maps/api/distancematrix/json' +
-    `?origins=${encodeURIComponent(String(address))}` +
-    `&destinations=${encodeURIComponent(office)}` +
-    '&mode=driving&language=it&units=metric' +
-    `&key=${key}`;
-
-  const resp = await fetch(url);
+  const resp = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters',
+    },
+    body: JSON.stringify({
+      origin: { address: String(address).trim() },
+      destination: { address: office },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_UNAWARE',
+      languageCode: 'it',
+      units: 'METRIC',
+    }),
+  });
   const data = await resp.json();
 
-  if (data.status !== 'OK') {
-    return jsonOk({ error: `Google Distance Matrix: ${data.status}${data.error_message ? ' — ' + data.error_message : ''}` }, 400);
+  if (!resp.ok) {
+    return jsonOk({ error: `Google Routes API: ${data.error?.status || resp.status}${data.error?.message ? ' — ' + data.error.message : ''}` }, 400);
   }
 
-  const element = data.rows?.[0]?.elements?.[0];
-  if (!element || element.status !== 'OK') {
-    return jsonOk({ error: `Indirizzo non risolvibile (${element?.status ?? 'NO_RESULT'})` }, 400);
+  const route = data.routes?.[0];
+  if (!route) {
+    return jsonOk({ error: 'Percorso non trovato (indirizzo non risolvibile)' }, 400);
   }
 
-  const minutes = Math.round((element.duration?.value ?? 0) / 60);
+  // duration è una stringa tipo "1234s"
+  const durSeconds = parseInt(String(route.duration || '0').replace('s', ''), 10) || 0;
+  const minutes = Math.round(durSeconds / 60);
+  const distanceMeters = route.distanceMeters ?? null;
+  const distanceText = distanceMeters != null ? `${(distanceMeters / 1000).toFixed(1)} km` : null;
 
   // Persisti su users (service role)
   const supabase = getServerSupabaseClient();
@@ -57,8 +71,8 @@ export const POST = withHandler('api/distance', 'POST', async (req) => {
 
   return jsonOk({
     minutes,
-    durationText: element.duration?.text ?? `${minutes} min`,
-    distanceText: element.distance?.text ?? null,
+    durationText: `${minutes} min`,
+    distanceText,
     office,
   });
 });

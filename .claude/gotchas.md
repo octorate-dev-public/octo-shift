@@ -141,16 +141,21 @@ sbloccare la singola. Le bulk toccano solo i turni con `locked` opposto (idempot
 
 ## 19. Distanza dal lavoro + giorno smart preferito
 
-Nuovi campi su `users`: `work_address`, `commute_minutes` (Google Distance Matrix, tempo auto),
-`preferred_smart_day` ('monday'..'friday', una sola). Aggiunti allo schema e garantiti allo
-start da `ensureUserColumns()` (ex ensureUserPhoneColumn, ora generico su più colonne; la DDL
-resta non eseguibile dal client → se manca l'RPC exec_sql logga l'ALTER da fare a mano).
-Calcolo distanza: POST `/api/distance` { userId, address } → usa `GOOGLE_MAPS_API_KEY` (server),
-destinazione = setting `office_address` (/admin/settings, default Via Filippo Caruso 23, Roma),
-salva work_address + commute_minutes. Il dipendente li configura da `/profile` (self-service:
-solo il proprio utente). Algoritmo: `SMART_DAY_PREF` spinge verso smart nel giorno preferito;
-`COMMUTE_WEIGHT` (cap 90 min) come tiebreaker distanza — entrambi sottratti allo score ufficio,
-sotto i minimi hard (ufficio + smart settimanale).
+Nuovi campi su `users`: `work_address`, `commute_minutes` (Google **Routes API**, tempo auto),
+`preferred_smart_day` ('monday'..'friday', una sola), `desired_smart_days_per_month` (slider 0–22,
+preferenza soft). Aggiunti allo schema e garantiti allo start da `ensureUserColumns()` (ex
+ensureUserPhoneColumn, ora generico su più colonne; la DDL resta non eseguibile dal client → se
+manca l'RPC exec_sql logga l'ALTER da fare a mano).
+Calcolo distanza: POST `/api/distance` { userId, address } → usa `GOOGLE_MAPS_API_KEY` (server) e
+**Routes API** `directions/v2:computeRoutes` (la vecchia Distance Matrix API è legacy → REQUEST_DENIED,
+va abilitata "Routes API"); destinazione = setting `office_address` (/admin/settings, default Via
+Filippo Caruso 23, Roma), salva work_address + commute_minutes. Il dipendente li configura da
+`/profile` (self-service: solo il proprio utente), incluso lo slider giorni-smart/mese desiderati.
+Algoritmo: `SMART_DAY_PREF` spinge verso smart nel giorno preferito; `COMMUTE_WEIGHT` (cap 90 min)
+tiebreaker distanza; `DESIRE_WEIGHT` (0.15 × scarto dei giorni desiderati dalla media del pool,
+neutro=8) — chi vuole più smart della media va spinto verso lo smart, chi meno verso l'ufficio.
+Tutti e tre sottratti allo score ufficio e SOTTO i minimi hard (ufficio + smart settimanale): la
+preferenza può non essere soddisfatta.
 
 ## 20. Sync ferie su Google Calendar
 
@@ -159,9 +164,16 @@ Collegamento OAuth2 in /admin/settings (componente `GoogleCalendarCard`). Flusso
 → `GET /api/google/callback` (scambia code, salva token). Token cifrato (`lib/crypto`) nel
 settings key `google_oauth`; calendario in `google_calendar_id`, titolo in `google_ferie_title`
 (default `{name} (Developer) - Ferie`). Logica in `lib/google.ts`: `ensureAccessToken` rinfresca
-via refresh_token; `syncFerie` legge le ferie (leave_type='vacation') in [oggi-7g,+365g], le
-raggruppa per utente (`groupVacationBlocks`) in eventi all-day (end ESCLUSIVO), e crea/aggiorna/
-elimina SOLO eventi con `extendedProperties.private.octoshift='ferie'` (mai toccare eventi altrui;
-match per `octoshiftKey=userId:startDate`). API JSON: `GET/POST /api/google` (action=status|calendars|
+via refresh_token; `syncFerie` legge le ferie (leave_type='vacation') in [oggi-60g,+365g] (finestra
+indietro ampia così la key `userId:startDate` resta stabile tra sync), le raggruppa per utente con
+`groupCalendarVacationBlocks` (NON `groupVacationBlocks`: due giorni si uniscono solo se OGNI giorno
+intermedio è non-lavorativo — work_days/festività; così Ven+Lun = un evento, Lun+Gio = due eventi,
+niente giorni lavorativi marcati "Ferie") in eventi all-day (end ESCLUSIVO), e crea/aggiorna/elimina
+SOLO eventi con `extendedProperties.private.octoshift='ferie'` (mai toccare eventi altrui; match per
+`octoshiftKey=userId:startDate`). API JSON: `GET/POST /api/google` (action=status|calendars|
 disconnect|setCalendar|setTitle|sync). Env: GOOGLE_CLIENT_ID/SECRET + Redirect URI {origine}/api/google/callback.
-"Cambia account" = ri-esegue /api/google/auth (prompt select_account) → per fare prove.
+Il redirect_uri usa `resolveBaseUrl` (preferisce NEXT_PUBLIC_APP_URL, fallback origin) → dietro proxy
+Vercel deve combaciare ESATTAMENTE con quello registrato su Google Cloud. "Cambia account" = ri-esegue
+/api/google/auth (prompt select_account); se l'email cambia il callback resetta `google_calendar_id` a
+'primary' (il calendario vecchio non esiste sul nuovo account → 404). NB eventi ferie creati a mano
+restano (non taggati) → possono comparire in doppio col nostro.

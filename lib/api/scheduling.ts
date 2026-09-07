@@ -169,6 +169,8 @@ export const schedulingAPI = {
       const SMART_DAY_PREF       = 2.5; // giorno smart preferito → spinge verso lo smart quel giorno
       const COMMUTE_WEIGHT       = 1.0; // distanza dal lavoro (tempo): più lontano → più smart. Tiebreaker sotto la preferenza giorno
       const COMMUTE_CAP_MIN      = 90;  // minuti oltre i quali il peso distanza è saturo (fattore 0..1)
+      const DESIRE_WEIGHT        = 0.15; // giorni smart/mese desiderati: chi ne vuole più della media → più smart; chi meno → più ufficio. Preferenza soft.
+      const DEFAULT_DESIRE       = 8;   // valore neutro se il dipendente non ha espresso preferenza
 
       // Numero di utenti regular per normalizzare la seniority
       const regularCount = sortedUsers.filter(u => !u.renounce_smart).length || 1;
@@ -346,6 +348,14 @@ export const schedulingAPI = {
           ? regularUnlocked.reduce((s, u) => s + smartEquiv(u.id), 0) / regularUnlocked.length
           : 0;
 
+        // Media dei giorni-smart/mese DESIDERATI sul pool presente (neutro = DEFAULT_DESIRE
+        // per chi non ha espresso preferenza). Serve a rendere il bias relativo: chi ne
+        // vuole più della media va spinto verso lo smart, chi meno verso l'ufficio.
+        const desiredOf = (u: User) => u.desired_smart_days_per_month ?? DEFAULT_DESIRE;
+        const avgDesired = regularUnlocked.length > 0
+          ? regularUnlocked.reduce((s, u) => s + desiredOf(u), 0) / regularUnlocked.length
+          : DEFAULT_DESIRE;
+
         // 6. Score each regular user for office assignment (higher = more office priority)
         const getPref = (userId: string): PreferenceType =>
           prefMap.get(`${userId}:${dateStr}`) ?? 'indifferent';
@@ -407,8 +417,12 @@ export const schedulingAPI = {
           const commuteFactor = Math.min(user.commute_minutes ?? 0, COMMUTE_CAP_MIN) / COMMUTE_CAP_MIN;
           const commuteBias = commuteFactor * COMMUTE_WEIGHT;
 
+          // 8. GIORNI SMART DESIDERATI/MESE — preferenza soft. Chi vuole più smart della
+          //    media → sottrae (più smart); chi ne vuole meno → aggiunge (più ufficio).
+          const desireBias = (desiredOf(user) - avgDesired) * DESIRE_WEIGHT;
+
           return equityScore + meetingBonus + seniorityScore + prefScore + styleScore
-            + weeklyMix + seniorityMix - smartDayPref - commuteBias;
+            + weeklyMix + seniorityMix - smartDayPref - commuteBias - desireBias;
         };
 
         regularUnlocked.sort((a, b) => scoreUser(b) - scoreUser(a));

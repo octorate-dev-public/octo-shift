@@ -28,6 +28,7 @@ export default function ProfilePage() {
   const [workAddress, setWorkAddress] = useState('');
   const [commuteMinutes, setCommuteMinutes] = useState<number | null>(null);
   const [preferredSmartDay, setPreferredSmartDay] = useState('');
+  const [desiredSmart, setDesiredSmart] = useState<number>(8);
   const [scheduleStyle, setScheduleStyle] = useState<'stable' | 'random'>('random');
 
   const load = useCallback(async () => {
@@ -40,6 +41,7 @@ export default function ProfilePage() {
       setWorkAddress(u.work_address ?? '');
       setCommuteMinutes(u.commute_minutes ?? null);
       setPreferredSmartDay(u.preferred_smart_day ?? '');
+      setDesiredSmart(u.desired_smart_days_per_month ?? 8);
       setScheduleStyle(u.schedule_style ?? 'random');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Errore nel caricamento del profilo');
@@ -80,6 +82,7 @@ export default function ProfilePage() {
         phone: phone.trim(),
         workAddress: workAddress.trim(),
         preferredSmartDay,
+        desiredSmartDaysPerMonth: desiredSmart,
         scheduleStyle,
       });
       flash('Profilo salvato');
@@ -172,6 +175,37 @@ export default function ProfilePage() {
                   <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Giorni di smart desiderati al mese */}
+            <div className="bg-white rounded-lg shadow p-6 space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Giorni di smart al mese desiderati</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Indica quanti giorni di smart working al mese <strong>vorresti</strong>. Chi preferisce venire di
+                  più in ufficio mette un numero basso, chi si trova meglio da casa un numero alto. È una preferenza
+                  che aiuta a bilanciare la generazione del mese.
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min={0}
+                  max={22}
+                  step={1}
+                  value={desiredSmart}
+                  onChange={(e) => setDesiredSmart(Number(e.target.value))}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="text-lg font-semibold text-gray-900 w-20 text-right tabular-nums">
+                  {desiredSmart} gg
+                </span>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-lg">
+                ⚠️ È solo una preferenza. Vincono sempre le regole aziendali: se serve riempire l&apos;ufficio, la
+                regola dell&apos;ufficio ha la priorità, e non si può superare il numero massimo di giorni di smart a
+                settimana previsto. Il numero desiderato può quindi non essere raggiunto.
+              </div>
             </div>
 
             {/* Contatto + stile */}

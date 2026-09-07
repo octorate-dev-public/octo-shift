@@ -17,6 +17,7 @@ CREATE TABLE users (
   work_address VARCHAR(255), -- indirizzo/città di casa del dipendente (origine per la distanza dal lavoro)
   commute_minutes INTEGER, -- tempo di percorrenza casa→ufficio in minuti (Google Distance Matrix)
   preferred_smart_day VARCHAR(10), -- giorno smart preferito: 'monday'..'friday' (una sola preferenza)
+  desired_smart_days_per_month INTEGER, -- giorni di smart/mese desiderati dal dipendente (preferenza, non garanzia)
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -175,3 +176,4 @@ INSERT INTO settings (key, value) VALUES
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address VARCHAR(255);
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS commute_minutes INTEGER;
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_smart_day VARCHAR(10);
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS desired_smart_days_per_month INTEGER;

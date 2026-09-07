@@ -9,6 +9,7 @@ const USER_COLUMNS: Array<{ name: string; ddl: string }> = [
   { name: 'work_address', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address VARCHAR(255);' },
   { name: 'commute_minutes', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS commute_minutes INTEGER;' },
   { name: 'preferred_smart_day', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_smart_day VARCHAR(10);' },
+  { name: 'desired_smart_days_per_month', ddl: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS desired_smart_days_per_month INTEGER;' },
 ];
 
 /**

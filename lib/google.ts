@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { settingsAPI } from './api/settings';
 import { encrypt, decrypt } from './crypto';
-import { groupVacationBlocks, formatDate } from './utils';
+import { formatDate } from './utils';
 import { createLogger } from './logger';
 
 const log = createLogger('google');
@@ -25,6 +25,16 @@ export interface GoogleToken {
   expiry: number; // epoch ms
   email: string | null;
   scope: string;
+}
+
+/**
+ * Base URL usata per costruire il redirect_uri. Deve combaciare ESATTAMENTE con
+ * quello registrato su Google Cloud. Dietro proxy (Vercel) req.nextUrl.origin può
+ * differire dal dominio pubblico → si preferisce NEXT_PUBLIC_APP_URL se impostata.
+ */
+export function resolveBaseUrl(originFallback: string): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  return (configured || originFallback).replace(/\/$/, '');
 }
 
 export function getClientCreds() {
@@ -201,6 +211,43 @@ function addDaysStr(ds: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+function weekdayName(ds: string): string {
+  return WEEKDAY_NAMES[new Date(ds + 'T12:00:00Z').getUTCDay()];
+}
+
+/**
+ * Raggruppa date di ferie in blocchi contigui PER IL CALENDARIO.
+ * Due giorni di ferie stanno nello stesso evento solo se OGNI giorno intermedio
+ * è non-lavorativo (fuori da work_days o festività). Così un Ven+Lun si uniscono
+ * (sabato/domenica in mezzo), ma Lun+Gio restano due eventi separati (mar/mer lavorativi).
+ */
+function groupCalendarVacationBlocks(
+  dates: string[],
+  workDays: Set<string>,
+  holidays: Set<string>,
+): string[][] {
+  const sorted = [...new Set(dates)].sort();
+  const isWorking = (ds: string) => workDays.has(weekdayName(ds)) && !holidays.has(ds);
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  for (const ds of sorted) {
+    if (current.length === 0) { current = [ds]; continue; }
+    const prev = current[current.length - 1];
+    // controlla i giorni strettamente tra prev e ds
+    let bridgeable = true;
+    let g = addDaysStr(prev, 1);
+    while (g < ds) {
+      if (isWorking(g)) { bridgeable = false; break; }
+      g = addDaysStr(g, 1);
+    }
+    if (bridgeable) current.push(ds);
+    else { blocks.push(current); current = [ds]; }
+  }
+  if (current.length) blocks.push(current);
+  return blocks;
+}
+
 interface DesiredEvent {
   key: string;        // octoshiftKey stabile: userId:startDate
   title: string;
@@ -221,8 +268,13 @@ export async function syncFerie(): Promise<{ created: number; updated: number; d
   const template = await getTitleTemplate();
 
   const today = new Date();
-  const timeMinDate = formatDate(new Date(today.getTime() - 7 * 86400000));
+  // finestra ampia all'indietro: una ferie iniziata nel recente passato mantiene
+  // la stessa key (userId:startDate) tra sync successive (no cancella+ricrea).
+  const timeMinDate = formatDate(new Date(today.getTime() - 60 * 86400000));
   const timeMaxDate = formatDate(new Date(today.getTime() + 365 * 86400000));
+
+  const workDays = new Set(await settingsAPI.getWorkDays());
+  const holidays = new Set(await settingsAPI.getHolidayDates());
 
   // 1. Ferie dal DB nella finestra, con nome utente
   const { data: rows, error } = await supabase
@@ -234,23 +286,23 @@ export async function syncFerie(): Promise<{ created: number; updated: number; d
   if (error) throw new Error(`Lettura ferie fallita: ${error.message}`);
 
   // 2. Raggruppa per utente → blocchi
-  const byUser = new Map<string, Array<{ shift_date: string; leave_type: string | null }>>();
+  const byUser = new Map<string, string[]>();
   const nameByUser = new Map<string, string>();
   for (const r of rows || []) {
     const uid = (r as any).user_id as string;
     if (!byUser.has(uid)) byUser.set(uid, []);
-    byUser.get(uid)!.push({ shift_date: (r as any).shift_date, leave_type: (r as any).leave_type });
+    byUser.get(uid)!.push((r as any).shift_date);
     const nm = (r as any).users?.full_name;
     if (nm) nameByUser.set(uid, nm);
   }
 
   const desired = new Map<string, DesiredEvent>();
-  for (const [uid, shifts] of byUser) {
-    const blocks = groupVacationBlocks(shifts);
+  for (const [uid, dates] of byUser) {
+    const blocks = groupCalendarVacationBlocks(dates, workDays, holidays);
     const name = nameByUser.get(uid) ?? 'Dipendente';
     for (const block of blocks) {
-      const startDate = block[0].shift_date;
-      const endDate = block[block.length - 1].shift_date;
+      const startDate = block[0];
+      const endDate = block[block.length - 1];
       const key = `${uid}:${startDate}`;
       desired.set(key, {
         key,
