@@ -84,30 +84,25 @@ export const swapRequestsAPI = {
         throw toAppError(err, 'Turno associato alla richiesta non trovato');
       }
 
-      // 3. Check neither shift is locked
-      if (requesterShift.locked || responderShift.locked) {
-        log.warn('acceptSwapRequest', 'Tentativo di swap su turno bloccato', {
-          requestId,
-          requesterLocked: requesterShift.locked,
-          responderLocked: responderShift.locked,
-        });
-        throw toAppError(
-          new Error('Uno dei turni è bloccato'),
-          'Impossibile scambiare turni bloccati',
-        );
-      }
-
-      // 4. Perform the swap atomically via RPC (single UPDATE with CASE)
-      //    Necessario per non violare UNIQUE(user_id, shift_date) quando i due
-      //    turni cadono nello stesso giorno.
-      const { error: swapError } = await supabase.rpc('swap_shift_users', {
+      // 3. Perform the swap atomically via RPC.
+      //    "Scambio giorni": scambia shift_type tra i due utenti sui giorni coinvolti
+      //    (user_id/shift_date invariati → nessun 23505 anche a date diverse).
+      //    La RPC rifiuta giorni bloccati o in ferie/permesso.
+      const { error: swapError } = await supabase.rpc('swap_shift_assignments', {
         p_requester_shift_id: requesterShift.id,
         p_responder_shift_id: responderShift.id,
       });
 
       if (swapError) {
         log.error('acceptSwapRequest', 'Errore durante lo swap effettivo', new Error(swapError.message));
-        throw toAppError(swapError, 'Errore durante lo scambio dei turni');
+        const m = swapError.message || '';
+        const friendly =
+          m.includes('locked') ? 'Uno dei giorni coinvolti è bloccato: impossibile scambiare.'
+          : m.includes('leave') ? 'Non si può scambiare un giorno con ferie o permesso.'
+          : m.includes('missing_row') ? 'Turno mancante per uno dei giorni coinvolti.'
+          : m.includes('shift_not_found') ? 'Turno associato alla richiesta non trovato.'
+          : 'Errore durante lo scambio dei turni';
+        throw toAppError(swapError, friendly);
       }
 
       // 5. Mark accepted

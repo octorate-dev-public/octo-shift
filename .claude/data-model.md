@@ -25,7 +25,8 @@ successive in [/migrations/](../migrations/).
 - `2026-04-09-add-leave-type.sql` — aggiunge la colonna `leave_type` (overlay).
 - `2026-05-14-on-call-daily.sql` — nuova tabella `on_call_daily_assignments`.
 - `2026-05-18-schedule-style.sql` — colonna `schedule_style` ('stable'|'random') su `users`.
-- `2026-05-18-swap-shift-function.sql` — funzione RPC `swap_shift_users` per swap atomico.
+- `2026-05-18-swap-shift-function.sql` — vecchia RPC `swap_shift_users` (swap user_id, solo stesso giorno; deprecata).
+- `2026-09-08-swap-assignments.sql` — RPC `swap_shift_assignments` (scambia shift_type tra i due utenti sui giorni coinvolti; funziona a date diverse; rifiuta giorni locked/ferie/permesso). Usata da `acceptSwapRequest`.
 
 ## Modello "shift + leave overlay" — IMPORTANTE
 

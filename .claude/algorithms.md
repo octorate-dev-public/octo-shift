@@ -92,16 +92,22 @@ File: [`lib/api/swap-requests.ts`](../lib/api/swap-requests.ts) → `acceptSwapR
 Problema: `UNIQUE(user_id, shift_date)` su `shifts`. Se due turni cadono **nello
 stesso giorno**, lo swap "naive" (UPDATE A poi UPDATE B) violerebbe il vincolo.
 
-Soluzione:
+Soluzione ATTUALE (migration `2026-09-08-swap-assignments.sql`, RPC `swap_shift_assignments`):
+lo swap **scambia `shift_type`** tra i due utenti sui giorni coinvolti (quello del
+requester e quello del responder), lasciando **`user_id`/`shift_date` invariati** →
+non tocca mai `UNIQUE(user_id, shift_date)`, quindi funziona anche a **date diverse**
+("scambio giorni": ognuno mantiene lo stesso conteggio office/smart, cambiano i giorni).
+Rifiuta (RAISE) se un giorno coinvolto è `locked` o ha `leave_type` (ferie/permesso):
+`acceptSwapRequest` mappa questi in messaggi chiari.
 
-1. Il constraint è stato reso **DEFERRABLE INITIALLY DEFERRED** (vedi migration `2026-05-18-swap-shift-function.sql`).
-2. La funzione RPC `swap_shift_users(p_requester_shift_id, p_responder_shift_id)` esegue una **single UPDATE con CASE**.
-3. Il client chiama `supabase.rpc('swap_shift_users', { ... })` dentro `acceptSwapRequest`.
+Storico/deprecato: la vecchia RPC `swap_shift_users` (migration `2026-05-18-swap-shift-function.sql`)
+scambiava `user_id` di 2 righe con constraint **DEFERRABLE** → funzionava solo per lo
+**stesso giorno**; a date diverse dava `23505` (duplicato) perché ogni utente ha già un
+turno ogni giorno. Non più usata da `acceptSwapRequest`.
 
-**Conseguenza:** dopo questa modifica, nessun `upsert/.../onConflict` su `shifts` è
-più permesso (Postgres non accetta constraint deferrable come arbitri di
-`ON CONFLICT`). Vedi i commenti dettagliati in `shiftsAPI.upsertShift` /
-`bulkUpsertShifts` e [gotchas.md](./gotchas.md).
+**Conseguenza (dal constraint deferrable):** nessun `upsert/.../onConflict` su `shifts` è
+permesso (Postgres non accetta constraint deferrable come arbitri di `ON CONFLICT`).
+Vedi i commenti in `shiftsAPI.upsertShift` / `bulkUpsertShifts` e [gotchas.md](./gotchas.md).
 
 ## 4. Stati delle richieste di swap
 
