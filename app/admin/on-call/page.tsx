@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/useAuth';
 import { OnCallDailyAssignment, User } from '@/types';
 import { formatDate, parseDateString } from '@/lib/utils';
 import type { AiSuggestion, AiSuggestionAction } from '@/types';
@@ -170,6 +170,8 @@ export default function AdminOnCallMatricePage() {
 
   const [year, setYear] = useState(today.getFullYear());
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // id DELL'APP (useAuth risolve per id, poi per email) — per mettere sé stessi in cima
+  const { userId: myAppUserId } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [assignments, setAssignments] = useState<OnCallDailyAssignment[]>([]);
   const [vacationDates, setVacationDates] = useState<Map<string, Set<string>>>(new Map());
@@ -299,12 +301,10 @@ export default function AdminOnCallMatricePage() {
     }
   }, [year, loadVacations]);
 
-  // Recupera l'utente autenticato (per metterlo in prima colonna)
+  // Utente autenticato (id dell'app) per metterlo in prima colonna
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setCurrentUserId(data.user.id);
-    });
-  }, []);
+    setCurrentUserId(myAppUserId);
+  }, [myAppUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
