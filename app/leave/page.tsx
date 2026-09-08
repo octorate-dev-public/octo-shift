@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/useAuth';
 import { Shift } from '@/types';
 import {
   getLeaveColor,
@@ -22,8 +22,8 @@ interface DeleteConfirm {
 }
 
 export default function UserLeavePage() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userName, setUserName] = useState('Utente');
+  // userId = id DELL'APP (useAuth risolve per id, poi per email)
+  const { userId, userName, userRole, logout } = useAuth();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,17 +54,6 @@ export default function UserLeavePage() {
     startDate: string; endDate: string; workingDays: number; peakAbsences: number; note: string;
   }>>([]);
   const [suggestError, setSuggestError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setUserId(data.user.id);
-        setUserName(data.user.email ?? 'Utente');
-      }
-    };
-    init();
-  }, []);
 
   useEffect(() => {
     if (userId) loadData(userId);
@@ -247,7 +236,7 @@ export default function UserLeavePage() {
 
   if (loading) {
     return (
-      <Layout userRole="user" userName={userName}>
+      <Layout userRole={userRole} userName={userName} onLogout={logout}>
         <div className="flex items-center justify-center h-full">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -256,7 +245,7 @@ export default function UserLeavePage() {
   }
 
   return (
-    <Layout userRole="user" userName={userName}>
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/useAuth';
 import { OnCallDailyAssignment, User } from '@/types';
 import { formatDate, getActiveOnCallDate } from '@/lib/utils';
 
@@ -58,23 +58,11 @@ export default function OnCallPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-based
   const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState('Utente');
 
-  // Auth
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) setCurrentUserId(data.user.id);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!currentUserId) return;
-    api.get<{ full_name: string }>(`/api/users?id=${currentUserId}`)
-      .then(u => { if (u?.full_name) setUserName(u.full_name); })
-      .catch(() => {});
-  }, [currentUserId]);
+  // userId = id DELL'APP (useAuth risolve per id, poi per email)
+  const { userId, userName, userRole, logout } = useAuth();
+  const currentUserId = userId;
 
   // Carica dati
   useEffect(() => { loadData(); }, [year, month]); // eslint-disable-line
@@ -152,7 +140,7 @@ export default function OnCallPage() {
   }
 
   return (
-    <Layout userRole="user" userName={userName}>
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-5 max-w-2xl mx-auto">
 
         {/* ── Header + nav mese ── */}

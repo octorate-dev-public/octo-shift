@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { api } from '@/lib/fetcher';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/useAuth';
 import { Shift } from '@/types';
 import { getInitials, getShiftColor, getShiftLabel, parseDateString } from '@/lib/utils';
 
@@ -33,32 +33,15 @@ export default function SchedulePage() {
   const [year, setYear] = useState<number>(() => new Date().getFullYear());
   const [month, setMonth] = useState<number>(() => new Date().getMonth());
 
+  // userId qui è l'id DELL'APP (useAuth risolve per id, poi per email) → così i turni
+  // e il nome si vedono anche se l'auth uid ≠ users.id (login magic-link/importati).
+  const { userId, userName, userRole, logout, loading: authLoading } = useAuth();
+
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [onCallDates, setOnCallDates] = useState<string[]>([]); // YYYY-MM-DD
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState('Utente');
-  const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [icsLinkCopied, setIcsLinkCopied] = useState(false);
-
-  // Resolve current user on mount
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        setUserId(data.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-  }, []);
-
-  // Display name
-  useEffect(() => {
-    if (!userId) return;
-    api.get<{ full_name: string }>(`/api/users?id=${userId}`)
-      .then((u) => { if (u?.full_name) setUserName(u.full_name); })
-      .catch(() => {});
-  }, [userId]);
 
   const loadShifts = useCallback(async () => {
     if (!userId) return;
@@ -125,7 +108,7 @@ export default function SchedulePage() {
 
 
   return (
-    <Layout userRole="user" userName={userName}>
+    <Layout userRole={userRole} userName={userName} onLogout={logout}>
       <div className="space-y-6">
         {/* Header */}
         <div>
