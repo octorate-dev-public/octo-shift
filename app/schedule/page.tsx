@@ -42,6 +42,15 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [icsLinkCopied, setIcsLinkCopied] = useState(false);
+  const [myBirthMD, setMyBirthMD] = useState<string | null>(null); // 'MM-DD'
+
+  // Data di nascita (per la torta 🎂 nel giorno del compleanno)
+  useEffect(() => {
+    if (!userId) return;
+    api.get<{ birth_date: string | null }>(`/api/users?id=${userId}`)
+      .then((u) => setMyBirthMD(u?.birth_date ? String(u.birth_date).slice(5, 10) : null))
+      .catch(() => {});
+  }, [userId]);
 
   const loadShifts = useCallback(async () => {
     if (!userId) return;
@@ -251,11 +260,16 @@ export default function SchedulePage() {
                       >
                         {date.getDate()}
                       </span>
-                      {shift?.locked && (
-                        <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
+                      <span className="flex items-center gap-1">
+                        {myBirthMD && dateStr.slice(5, 10) === myBirthMD && (
+                          <span title="Buon compleanno! 🎂">🎂</span>
+                        )}
+                        {shift?.locked && (
+                          <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </span>
                     </div>
 
                     {/* Reperibilità badge */}

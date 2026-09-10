@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const [commuteMinutes, setCommuteMinutes] = useState<number | null>(null);
   const [preferredSmartDay, setPreferredSmartDay] = useState('');
   const [desiredSmart, setDesiredSmart] = useState<number>(8);
+  const [birthDate, setBirthDate] = useState('');
   const [scheduleStyle, setScheduleStyle] = useState<'stable' | 'random'>('random');
 
   const load = useCallback(async () => {
@@ -42,6 +43,7 @@ export default function ProfilePage() {
       setCommuteMinutes(u.commute_minutes ?? null);
       setPreferredSmartDay(u.preferred_smart_day ?? '');
       setDesiredSmart(u.desired_smart_days_per_month ?? 8);
+      setBirthDate(u.birth_date ? u.birth_date.slice(0, 10) : '');
       setScheduleStyle(u.schedule_style ?? 'random');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Errore nel caricamento del profilo');
@@ -83,6 +85,7 @@ export default function ProfilePage() {
         workAddress: workAddress.trim(),
         preferredSmartDay,
         desiredSmartDaysPerMonth: desiredSmart,
+        birthDate,
         scheduleStyle,
       });
       flash('Profilo salvato');
@@ -226,6 +229,17 @@ export default function ProfilePage() {
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="+39 333 1234567"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  🎂 Data di nascita <span className="text-gray-400 font-normal">(compleanno sul calendario)</span>
+                </label>
+                <input
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>

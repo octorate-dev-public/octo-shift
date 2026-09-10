@@ -157,7 +157,9 @@ sbloccare la singola. Le bulk toccano solo i turni con `locked` opposto (idempot
 
 Nuovi campi su `users`: `work_address`, `commute_minutes` (Google **Routes API**, tempo auto),
 `preferred_smart_day` ('monday'..'friday', una sola), `desired_smart_days_per_month` (slider 0–22,
-preferenza soft). Aggiunti allo schema e garantiti allo start da `ensureUserColumns()` (ex
+preferenza soft), `birth_date` (DATE; 🎂 nel calendario nel giorno mese+giorno — `Calendar.tsx`
+mostra i compleanni del team con tooltip nomi, `/schedule` mostra il proprio). Aggiunti allo schema
+e garantiti allo start da `ensureUserColumns()` (ex
 ensureUserPhoneColumn, ora generico su più colonne; la DDL resta non eseguibile dal client → se
 manca l'RPC exec_sql logga l'ALTER da fare a mano).
 Calcolo distanza: POST `/api/distance` { userId, address } → usa `GOOGLE_MAPS_API_KEY` (server) e

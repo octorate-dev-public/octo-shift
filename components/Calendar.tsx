@@ -242,6 +242,19 @@ export default function Calendar({
     return Array.from(map.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [users, shifts]);
 
+  // Compleanni: mappa 'MM-DD' → nomi (dai dipendenti visibili nella matrice)
+  const birthdaysByMD = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const u of matrixUsers) {
+      if (!u.birth_date) continue;
+      const md = String(u.birth_date).slice(5, 10); // 'MM-DD'
+      if (md.length !== 5) continue;
+      if (!m.has(md)) m.set(md, []);
+      m.get(md)!.push(u.full_name);
+    }
+    return m;
+  }, [matrixUsers]);
+
   const shiftLookup = useMemo(() => {
     const map = new Map<string, Map<string, ShiftWithUser>>();
     workingShifts.forEach((s) => {
@@ -561,6 +574,9 @@ export default function Calendar({
                       {IT_DAYS_ABBR[dow]} {date.getDate()}
                       {isToday && <span className="ml-1 text-amber-500">●</span>}
                       {isHoliday && <span className="ml-1 text-amber-400 font-bold">*</span>}
+                      {birthdaysByMD.get(dateStr.slice(5, 10)) && (
+                        <span className="ml-1" title={`Compleanno: ${birthdaysByMD.get(dateStr.slice(5, 10))!.join(', ')}`}>🎂</span>
+                      )}
                     </td>
 
                     {/* Per-user shift cells */}
